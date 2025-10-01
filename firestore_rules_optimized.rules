@@ -1,0 +1,150 @@
+// 🎓 Study Mode: 小学生でも分かる！Firestore セキュリティルール
+// 🔒 災害配送アプリのデータを安全に保護
+
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 📚 小学生向け解説: セキュリティルールとは？
+    // 例：図書館のルール
+    // - 本を読むのは誰でもOK（read: true）
+    // - 本を書き込むのは司書さんだけ（write: 認証必要）
+    // - 緊急時は特別ルール（災害時の例外処理）
+
+    // 🚀 配達リクエストのルール
+    match /delivery_requests/{requestId} {
+      // 📖 読み取り: 誰でも可能（配達員が確認するため）
+      allow read: if true;
+      
+      // ✏️ 書き込み: 認証済みユーザーまたは緊急時
+      allow write: if request.auth != null || isEmergencyMode();
+      
+      // 🔄 更新: 配達員が状況を更新するため
+      allow update: if request.auth != null 
+        && (request.auth.uid == resource.data.assignedDeliveryPersonId 
+            || isAdmin(request.auth.uid));
+    }
+
+    // 🏥 避難所情報のルール
+    match /shelters/{shelterId} {
+      // 📖 読み取り: 誰でも可能（公共情報）
+      allow read: if true;
+      
+      // ✏️ 書き込み: 管理者のみ（避難所情報は重要）
+      allow write: if isAdmin(request.auth.uid);
+      
+      // 🔄 収容人数更新: 避難所スタッフも可能
+      allow update: if request.auth != null 
+        && (isAdmin(request.auth.uid) 
+            || isShelterStaff(request.auth.uid, shelterId)
+            || onlyUpdatingOccupancy());
+    }
+
+    // 📊 統計データのルール
+    match /daily_stats/{date} {
+      // 📖 読み取り: 認証済みユーザー
+      allow read: if request.auth != null;
+      
+      // ✏️ 書き込み: システムのみ（自動計算）
+      allow write: if isSystemAccount(request.auth.uid);
+    }
+
+    // 👥 配達員情報のルール
+    match /delivery_persons/{personId} {
+      // 📖 読み取り: 本人または管理者
+      allow read: if request.auth != null 
+        && (request.auth.uid == personId || isAdmin(request.auth.uid));
+      
+      // ✏️ 書き込み: 本人または管理者
+      allow write: if request.auth != null 
+        && (request.auth.uid == personId || isAdmin(request.auth.uid));
+    }
+
+    // 🔧 システム設定のルール
+    match /system_config/{configId} {
+      // 📖 読み取り: 認証済みユーザー
+      allow read: if request.auth != null;
+      
+      // ✏️ 書き込み: 管理者のみ
+      allow write: if isAdmin(request.auth.uid);
+    }
+
+    // 📱 テストデータのルール（開発用）
+    match /test_data/{document=**} {
+      // 🧪 テスト環境: 全ての操作を許可
+      allow read, write: if isTestEnvironment();
+    }
+
+    // 🚨 緊急時のルール（災害発生時）
+    match /emergency/{document=**} {
+      // 📖 読み取り: 誰でも可能（災害情報の共有）
+      allow read: if true;
+      
+      // ✏️ 書き込み: 緊急モード時は緩和
+      allow write: if isEmergencyMode() || request.auth != null;
+    }
+
+    // 🔒 Helper Functions（小学生向け：便利な関数集）
+    
+    // 管理者チェック（校長先生かどうか？）
+    function isAdmin(userId) {
+      return userId in [
+        'admin_user_1',  // メイン管理者
+        'admin_user_2',  // 副管理者
+        'system_account' // システムアカウント
+      ];
+    }
+
+    // 緊急モードチェック（災害発生中？）
+    function isEmergencyMode() {
+      // 実際の実装では、システム設定から取得
+      // 現在は開発用に常にfalse
+      return false;
+    }
+
+    // テスト環境チェック（練習モード？）
+    function isTestEnvironment() {
+      // 開発環境やテスト環境での動作確認用
+      return request.auth != null && request.auth.uid.contains('test_');
+    }
+
+    // システムアカウントチェック（自動処理？）
+    function isSystemAccount(userId) {
+      return userId == 'system_account' || userId.contains('firebase_');
+    }
+
+    // 避難所スタッフチェック（その避難所の職員？）
+    function isShelterStaff(userId, shelterId) {
+      // 実際の実装では、staff_assignmentsコレクションから確認
+      return exists(/databases/$(database)/documents/staff_assignments/$(userId + '_' + shelterId));
+    }
+
+    // 収容人数のみ更新チェック（他の情報は変更していない？）
+    function onlyUpdatingOccupancy() {
+      return request.resource.data.diff(resource.data).affectedKeys().hasOnly(['currentOccupancy', 'lastUpdated']);
+    }
+  }
+}
+
+/* 📚 小学生向け学習ポイント：
+
+1. **セキュリティの3原則**:
+   - 📖 読み取り権限: 必要な人が情報を見られる
+   - ✏️ 書き込み権限: 責任のある人だけが変更できる
+   - 🔄 更新権限: 部分的な変更は柔軟に対応
+
+2. **災害時の特別ルール**:
+   - 緊急時は通常より緩いルール
+   - 公共の安全が最優先
+   - でも、基本的なセキュリティは維持
+
+3. **段階的なアクセス制御**:
+   - 一般利用者 < 配達員 < 避難所スタッフ < 管理者
+   - それぞれの役割に応じた権限
+
+4. **開発用の特別設定**:
+   - テスト環境では制限を緩和
+   - 本番環境では厳格に運用
+
+これで、Firebase無料プランでも安全にアプリが動く！
+*/

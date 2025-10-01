@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "694310204931",
+    "project_id": "disaster-delivery-app",
+    "storage_bucket": "disaster-delivery-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:694310204931:android:ffbc076cc5beae31414036",
+        "android_client_info": {
+          "package_name": "com.example.disaster_delivery"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD9SO41ny0ZMASCc9eSNVPZ_noSVTa609s"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

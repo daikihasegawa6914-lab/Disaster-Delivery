@@ -143,3 +143,103 @@ class DeliveryPersonService {
     // 将来的にFirestoreに保存
   }
 }
+
+// 🏥 避難所情報を管理するサービス
+class ShelterService {
+  static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  static const String sheltersCollection = 'shelters';
+
+  // 全ての避難所を取得
+  static Stream<List<Shelter>> getAllShelters() {
+    return _firestore
+        .collection(sheltersCollection)
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => Shelter.fromFirestore(doc))
+            .toList());
+  }
+
+  // 利用可能な避難所のみを取得
+  static Stream<List<Shelter>> getAvailableShelters() {
+    return _firestore
+        .collection(sheltersCollection)
+        .where('status', isEqualTo: 'open')
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => Shelter.fromFirestore(doc))
+            .toList());
+  }
+
+  // 近くの避難所を取得（簡易版）
+  static Future<List<Shelter>> getNearByShelters(GeoPoint userLocation, {double radiusKm = 5.0}) async {
+    final snapshot = await _firestore.collection(sheltersCollection).get();
+    final shelters = snapshot.docs.map((doc) => Shelter.fromFirestore(doc)).toList();
+    
+    // 距離でフィルタリング
+    return shelters.where((shelter) {
+      final distance = LocationService.calculateDistance(userLocation, shelter.location);
+      return distance <= radiusKm;
+    }).toList()
+      ..sort((a, b) {
+        final distanceA = LocationService.calculateDistance(userLocation, a.location);
+        final distanceB = LocationService.calculateDistance(userLocation, b.location);
+        return distanceA.compareTo(distanceB);
+      });
+  }
+
+  // 避難所情報を更新
+  static Future<void> updateShelterOccupancy(String shelterId, int newOccupancy) async {
+    await _firestore.collection(sheltersCollection).doc(shelterId).update({
+      'currentOccupancy': newOccupancy,
+      'lastUpdated': FieldValue.serverTimestamp(),
+    });
+  }
+
+  // 初期の避難所データを作成（開発用）
+  static Future<void> createInitialShelterData() async {
+    final shelters = [
+      {
+        'name': '新宿区立第一中学校',
+        'address': '東京都新宿区西新宿1-1-1',
+        'location': const GeoPoint(35.6896, 139.7006),
+        'capacity': 500,
+        'currentOccupancy': 230,
+        'facilities': ['体育館', '教室', '給水設備', '医療室'],
+        'status': 'open',
+        'contactPhone': '03-1234-5678',
+        'lastUpdated': FieldValue.serverTimestamp(),
+      },
+      {
+        'name': '渋谷区民センター',
+        'address': '東京都渋谷区渋谷1-1-1',
+        'location': const GeoPoint(35.6598, 139.7036),
+        'capacity': 300,
+        'currentOccupancy': 280,
+        'facilities': ['ホール', '会議室', '給水設備'],
+        'status': 'open',
+        'contactPhone': '03-2345-6789',
+        'lastUpdated': FieldValue.serverTimestamp(),
+      },
+      {
+        'name': '港区立総合体育館',
+        'address': '東京都港区芝公園1-1-1',
+        'location': const GeoPoint(35.6585, 139.7454),
+        'capacity': 800,
+        'currentOccupancy': 150,
+        'facilities': ['体育館', 'プール', '給水設備', '医療室', '調理室'],
+        'status': 'open',
+        'contactPhone': '03-3456-7890',
+        'lastUpdated': FieldValue.serverTimestamp(),
+      },
+    ];
+
+    final batch = _firestore.batch();
+    for (var shelter in shelters) {
+      final docRef = _firestore.collection(sheltersCollection).doc();
+      batch.set(docRef, shelter);
+    }
+    
+    await batch.commit();
+    print('✅ 避難所データを作成しました');
+  }
+}

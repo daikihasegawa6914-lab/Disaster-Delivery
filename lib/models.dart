@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/material.dart'; // Color と Colors のため
 
 // 👶 簡単に言うと：「配達要請データの設計図」
 class DeliveryRequest {
@@ -106,4 +107,83 @@ class DeliveryPerson {
     this.currentLocation,
     required this.activeDeliveries,
   });
+}
+
+// 🏥 避難所情報
+class Shelter {
+  final String id;
+  final String name;              // 避難所名
+  final String address;           // 住所
+  final GeoPoint location;        // 位置座標
+  final int capacity;             // 収容人数
+  final int currentOccupancy;     // 現在の利用者数
+  final List<String> facilities;  // 施設設備
+  final String status;            // 状態 (open, full, closed)
+  final String? contactPhone;     // 連絡先
+  final DateTime lastUpdated;     // 最終更新日時
+
+  Shelter({
+    required this.id,
+    required this.name,
+    required this.address,
+    required this.location,
+    required this.capacity,
+    required this.currentOccupancy,
+    required this.facilities,
+    required this.status,
+    this.contactPhone,
+    required this.lastUpdated,
+  });
+
+  // Firestoreからデータを取得するときの変換
+  factory Shelter.fromFirestore(DocumentSnapshot doc) {
+    final data = doc.data() as Map<String, dynamic>;
+    return Shelter(
+      id: doc.id,
+      name: data['name'] ?? '',
+      address: data['address'] ?? '',
+      location: data['location'] ?? const GeoPoint(0, 0),
+      capacity: data['capacity'] ?? 0,
+      currentOccupancy: data['currentOccupancy'] ?? 0,
+      facilities: List<String>.from(data['facilities'] ?? []),
+      status: data['status'] ?? 'unknown',
+      contactPhone: data['contactPhone'],
+      lastUpdated: (data['lastUpdated'] as Timestamp?)?.toDate() ?? DateTime.now(),
+    );
+  }
+
+  // Firestoreに保存するときの変換
+  Map<String, dynamic> toFirestore() {
+    return {
+      'name': name,
+      'address': address,
+      'location': location,
+      'capacity': capacity,
+      'currentOccupancy': currentOccupancy,
+      'facilities': facilities,
+      'status': status,
+      'contactPhone': contactPhone,
+      'lastUpdated': FieldValue.serverTimestamp(),
+    };
+  }
+
+  // 空き状況のパーセンテージ
+  double get occupancyRate => capacity > 0 ? (currentOccupancy / capacity) : 0.0;
+
+  // 状態に応じたアイコン
+  String get statusIcon {
+    switch (status) {
+      case 'open': return '🟢'; // 利用可能
+      case 'full': return '🔴'; // 満員
+      case 'closed': return '⚫'; // 閉鎖
+      default: return '🟡'; // 不明
+    }
+  }
+
+  // 空き状況の色
+  Color get occupancyColor {
+    if (occupancyRate < 0.7) return Colors.green;
+    if (occupancyRate < 0.9) return Colors.orange;
+    return Colors.red;
+  }
 }

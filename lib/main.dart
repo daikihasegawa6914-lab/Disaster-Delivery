@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'firebase_options.dart';
-import 'delivery_map_screen.dart'; // 配達員用地図画面
+import 'main_screen.dart'; // メイン画面に変更
 
 void main() async {
   // 👶 簡単に言うと：「アプリを始める前の準備」
@@ -31,7 +31,7 @@ class DeliveryApp extends StatelessWidget {
           foregroundColor: Colors.blue.shade800,
         ),
       ),
-      home: const DeliveryMapScreen(), // 配達員は地図画面から開始
+      home: const MainScreen(), // タブナビゲーション付きメイン画面
       debugShowCheckedModeBanner: false,
     );
   }

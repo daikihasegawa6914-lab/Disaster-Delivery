@@ -3,6 +3,7 @@ import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'models.dart';
 import 'services.dart';
 import 'test_data_service.dart'; // テストデータサービスを追加
+import 'production_config.dart'; // 本番環境設定
 
 // 👶 簡単に言うと：「配達員が使う特別な地図」
 class DeliveryMapScreen extends StatefulWidget {
@@ -43,15 +44,16 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('🚚 配達マップ'),
+        title: Text('🚚 配達マップ (${ProductionConfig.environmentName})'),
         backgroundColor: Colors.blue.shade100,
         actions: [
-          // 🧪 テストデータボタン（開発用）
-          IconButton(
-            icon: const Icon(Icons.science, color: Colors.green),
-            onPressed: () => _showTestDataMenu(context),
-            tooltip: 'テストデータ',
-          ),
+          // 🧪 テストデータボタン（開発環境のみ）
+          if (ProductionConfig.enableTestData)
+            IconButton(
+              icon: const Icon(Icons.science, color: Colors.green),
+              onPressed: () => _showTestDataMenu(context),
+              tooltip: 'テストデータ',
+            ),
           // 表示切り替えボタン
           PopupMenuButton<String>(
             icon: const Icon(Icons.filter_list),

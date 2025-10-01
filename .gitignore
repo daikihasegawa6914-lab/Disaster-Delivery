@@ -1,3 +1,14 @@
+# 🔐 セキュリティ: 機密情報ファイル
+.env
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+lib/firebase_options.dart
+
+# Firebase設定（開発用のみ公開）
+# 本番用設定は除外
+*_production.json
+*_production.dart
+
 # Miscellaneous
 *.class
 *.log

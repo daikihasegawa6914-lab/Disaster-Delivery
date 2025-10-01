@@ -1,0 +1,53 @@
+// Firebase設定サンプルファイル
+// 実際の使用時は firebase_options.dart として保存し、正しい値を設定してください
+
+import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, kIsWeb, TargetPlatform;
+
+class DefaultFirebaseOptions {
+  static FirebaseOptions get currentPlatform {
+    if (kIsWeb) {
+      return web;
+    }
+    switch (defaultTargetPlatform) {
+      case TargetPlatform.android:
+        return android;
+      case TargetPlatform.iOS:
+        return ios;
+      case TargetPlatform.macOS:
+        throw UnsupportedError('macOSはサポートされていません');
+      case TargetPlatform.windows:
+        throw UnsupportedError('Windowsはサポートされていません');
+      case TargetPlatform.linux:
+        throw UnsupportedError('Linuxはサポートされていません');
+      default:
+        throw UnsupportedError('サポートされていないプラットフォームです');
+    }
+  }
+
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'your_web_api_key_here',
+    appId: 'your_web_app_id_here',
+    messagingSenderId: 'your_messaging_sender_id_here',
+    projectId: 'your_project_id_here',
+    authDomain: 'your_project_id_here.firebaseapp.com',
+    storageBucket: 'your_project_id_here.appspot.com',
+  );
+
+  static const FirebaseOptions android = FirebaseOptions(
+    apiKey: 'your_android_api_key_here',
+    appId: 'your_android_app_id_here',
+    messagingSenderId: 'your_messaging_sender_id_here',
+    projectId: 'your_project_id_here',
+    storageBucket: 'your_project_id_here.appspot.com',
+  );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'your_ios_api_key_here',
+    appId: 'your_ios_app_id_here',
+    messagingSenderId: 'your_messaging_sender_id_here',
+    projectId: 'your_project_id_here',
+    storageBucket: 'your_project_id_here.appspot.com',
+    iosBundleId: 'com.example.disasterDelivery',
+  );
+}

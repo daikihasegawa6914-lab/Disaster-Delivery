@@ -34,8 +34,8 @@ service cloud.firestore {
              lng >= 139.0 && lng <= 140.5;
     }
     
-    // 📦 配達依頼コレクション（DeliveryRequest）
-    match /delivery_requests/{requestId} {
+    // 📦 配達依頼コレクション（requests - 既存データと互換性維持）
+    match /requests/{requestId} {
       // 🔍 読み取り：認証不要（災害時対応のため）
       allow read: if true;
       
@@ -43,60 +43,84 @@ service cloud.firestore {
       allow create: if 
         // 必須フィールドの存在確認
         request.resource.data.keys().hasAll([
-          'requesterName', 'requesterPhone', 'requesterEmail',
-          'address', 'latitude', 'longitude', 'itemName',
+          'requesterName', 'requesterPhone', 'address', 'itemName',
           'priority', 'isUrgent', 'timestamp'
         ]) &&
         
         // 各フィールドの検証
         isValidString(request.resource.data.requesterName, 50) &&
-        isValidPhoneNumber(request.resource.data.requesterPhone) &&
-        isValidEmail(request.resource.data.requesterEmail) &&
         isValidString(request.resource.data.address, 200) &&
-        isValidCoordinates(
-          request.resource.data.latitude, 
-          request.resource.data.longitude
-        ) &&
         isValidString(request.resource.data.itemName, 100) &&
         isValidPriority(request.resource.data.priority) &&
         request.resource.data.isUrgent is bool &&
-        request.resource.data.timestamp is timestamp &&
-        
-        // 🚨 レート制限（1分間に最大5件まで）
-        request.resource.data.timestamp > 
-          (timestamp.date() - duration.value(1, 'min'));
+        request.resource.data.timestamp is timestamp;
       
-      // 📝 更新：限定的な更新のみ許可
+      // � 更新：限定的な更新のみ許可
       allow update: if 
-        // ステータス更新のみ許可
-        request.resource.data.keys().hasOnly([
-          'status', 'delivererName', 'updatedAt'
-        ]) &&
-        isValidString(request.resource.data.get('status', ''), 20) &&
         request.resource.data.updatedAt is timestamp;
       
       // 🗑️ 削除：禁止（災害時のデータ保全）
       allow delete: if false;
     }
-    
-    // 🚚 配達者コレクション（Deliverers）
-    match /deliverers/{delivererId} {
-      // 🔍 読み取り：位置情報のみ公開
+
+    // 👤 配達員プロフィールコレクション（delivery_persons）
+    match /delivery_persons/{personId} {
+      // � 読み取り：基本情報は公開
       allow read: if true;
       
-      // ✍️ 作成/更新：基本情報のみ
-      allow write: if 
+      // ✍️ 作成：新規配達員登録
+      allow create: if 
         request.resource.data.keys().hasAll([
-          'name', 'currentLatitude', 'currentLongitude', 
-          'isAvailable', 'lastUpdated'
+          'uid', 'name', 'vehicleType', 'isActive'
         ]) &&
         isValidString(request.resource.data.name, 50) &&
-        isValidCoordinates(
-          request.resource.data.currentLatitude,
-          request.resource.data.currentLongitude
-        ) &&
-        request.resource.data.isAvailable is bool &&
-        request.resource.data.lastUpdated is timestamp;
+        isValidString(request.resource.data.vehicleType, 20) &&
+        request.resource.data.isActive is bool &&
+        request.resource.data.createdAt is timestamp;
+      
+      // 📝 更新：本人のみまたは開発環境
+      allow update: if 
+        // 開発環境では制限緩和
+        request.resource.data.get('isTestUser', false) == true ||
+        // 本人認証済みの場合
+        request.auth != null && request.auth.uid == personId;
+      
+      // 🗑️ 削除：開発環境のみ
+      allow delete: if 
+        request.resource.data.get('isTestUser', false) == true;
+    }
+    
+        // � 配達コレクション（deliveries）
+    match /deliveries/{deliveryId} {
+      // 🔍 読み取り：基本的に公開
+      allow read: if true;
+      
+      // ✍️ 作成：配達完了時のレコード作成
+      allow create: if 
+        request.resource.data.keys().hasAll([
+          'requestId', 'deliveryPersonId', 'completedAt'
+        ]) &&
+        isValidString(request.resource.data.requestId, 50) &&
+        isValidString(request.resource.data.deliveryPersonId, 50) &&
+        request.resource.data.completedAt is timestamp;
+      
+      // 📝 更新：作成者のみ
+      allow update: if 
+        request.auth != null && 
+        request.auth.uid == resource.data.deliveryPersonId;
+      
+      // 🗑️ 削除：開発環境のみ
+      allow delete: if 
+        request.resource.data.get('isTestDelivery', false) == true;
+    }
+
+    // 🏠 避難所コレクション（shelters）
+    match /shelters/{shelterId} {
+      // 🔍 読み取り：全て公開（災害時情報）
+      allow read: if true;
+      
+      // ✍️ 作成・更新・削除：管理者のみ
+      allow write: if false; // 管理者権限が必要
     }
     
     // 📍 避難所情報コレクション（ShelterInfo）

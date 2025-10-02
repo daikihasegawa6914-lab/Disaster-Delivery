@@ -1,1 +1,34 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"disaster-delivery-app","appId":"1:694310204931:android:ffbc076cc5beae31414036","fileOutput":"android/app/google-services.json"}},"ios":{"default":{"projectId":"disaster-delivery-app","appId":"1:694310204931:ios:3eba4af2b814b7ed414036","uploadDebugSymbols":false,"fileOutput":"ios/Runner/GoogleService-Info.plist"}},"dart":{"lib/firebase_options.dart":{"projectId":"disaster-delivery-app","configurations":{"android":"1:694310204931:android:ffbc076cc5beae31414036","ios":"1:694310204931:ios:3eba4af2b814b7ed414036","web":"1:694310204931:web:7f6a2bff4572ced8414036"}}}}}}
+{
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "disaster-delivery-app",
+          "appId": "1:694310204931:android:ffbc076cc5beae31414036",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "ios": {
+        "default": {
+          "projectId": "disaster-delivery-app",
+          "appId": "1:694310204931:ios:3eba4af2b814b7ed414036",
+          "uploadDebugSymbols": false,
+          "fileOutput": "ios/Runner/GoogleService-Info.plist"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "disaster-delivery-app",
+          "configurations": {
+            "android": "1:694310204931:android:ffbc076cc5beae31414036",
+            "ios": "1:694310204931:ios:3eba4af2b814b7ed414036",
+            "web": "1:694310204931:web:7f6a2bff4572ced8414036"
+          }
+        }
+      }
+    }
+  }
+}

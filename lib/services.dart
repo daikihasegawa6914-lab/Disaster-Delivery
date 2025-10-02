@@ -1,21 +1,24 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:flutter/foundation.dart';
 import 'models.dart';
 
 // 👶 簡単に言うと：「Firebaseとやりとりする専門家」
 class FirebaseService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;
   
-  // コレクション名（友人のアプリと共通）
+  // コレクション名（実際のFirebase構成に合わせる）
   static const String requestsCollection = 'requests';
   static const String deliveriesCollection = 'deliveries';
+  static const String sheltersCollection = 'shelters';
+  static const String deliveryPersonsCollection = 'delivery_persons';
 
-  // 📍 配達待ちの要請を取得するStream
+  // 📍 配達待ちの要請を取得するStream（インデックス不要バージョン）
   static Stream<List<DeliveryRequest>> getWaitingRequests() {
     return _firestore
         .collection(requestsCollection)
         .where('status', isEqualTo: 'waiting')
-        // .orderBy('timestamp', descending: false) // 一時的にコメントアウト
+        // orderBy を一時的に削除してインデックスエラーを回避
         .snapshots()
         .map((snapshot) => snapshot.docs
             .map((doc) => DeliveryRequest.fromFirestore(doc))
@@ -26,20 +29,40 @@ class FirebaseService {
   static Stream<List<DeliveryRequest>> getMyDeliveries(String deliveryPersonId) {
     return _firestore
         .collection(requestsCollection)
-        .where('deliveryPersonId', isEqualTo: deliveryPersonId)
-        .where('status', isEqualTo: 'delivering')
+        .where('assignedDeliveryPersonId', isEqualTo: deliveryPersonId)
+        .where('status', whereIn: ['assigned', 'delivering'])
         .snapshots()
         .map((snapshot) => snapshot.docs
             .map((doc) => DeliveryRequest.fromFirestore(doc))
             .toList());
   }
 
-  // 🎯 配達を開始する
+  // � 避難所情報を取得
+  static Stream<List<Shelter>> getShelters() {
+    return _firestore
+        .collection(sheltersCollection)
+        .where('status', isEqualTo: 'open')
+        .snapshots()
+        .map((snapshot) => snapshot.docs
+            .map((doc) => Shelter.fromFirestore(doc))
+            .toList());
+  }
+
+  // �🎯 配達を開始する
   static Future<void> startDelivery(String requestId, String deliveryPersonId) async {
     await _firestore.collection(requestsCollection).doc(requestId).update({
+      'status': 'assigned',
+      'assignedDeliveryPersonId': deliveryPersonId,
+      'assignedAt': FieldValue.serverTimestamp(),
+      'estimatedDeliveryTime': DateTime.now().add(const Duration(hours: 1)).millisecondsSinceEpoch,
+    });
+  }
+
+  // 🚚 配達中ステータスに更新
+  static Future<void> markAsDelivering(String requestId) async {
+    await _firestore.collection(requestsCollection).doc(requestId).update({
       'status': 'delivering',
-      'deliveryPersonId': deliveryPersonId,
-      'startTime': FieldValue.serverTimestamp(),
+      'deliveryStartedAt': FieldValue.serverTimestamp(),
     });
   }
 
@@ -98,7 +121,7 @@ class LocationService {
 
       return await Geolocator.getCurrentPosition();
     } catch (e) {
-      print('位置情報取得エラー: $e');
+      debugPrint('位置情報取得エラー: $e');
       return null;
     }
   }
@@ -240,6 +263,6 @@ class ShelterService {
     }
     
     await batch.commit();
-    print('✅ 避難所データを作成しました');
+    debugPrint('✅ 避難所データを作成しました');
   }
 }

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'models.dart';
 import 'services.dart';
-import 'test_data_service.dart'; // テストデータサービスを追加
-import 'production_config.dart'; // 本番環境設定
+import 'login_screen.dart';
 
-// 👶 簡単に言うと：「配達員が使う特別な地図」
+// 🏠 シンプルな避難所マップ画面
 class DeliveryMapScreen extends StatefulWidget {
   const DeliveryMapScreen({super.key});
 
@@ -16,13 +16,17 @@ class DeliveryMapScreen extends StatefulWidget {
 class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
   GoogleMapController? _mapController;
   String _currentView = 'all'; // 'all', 'emergency', 'my_deliveries'
-  final String _deliveryPersonId = DeliveryPersonService.currentDeliveryPersonId;
+  
+  // 🔐 認証済みユーザーのIDを取得
+  String get _deliveryPersonId {
+    final user = FirebaseAuth.instance.currentUser;
+    return user?.uid ?? '';
+  }
 
   @override
   void initState() {
     super.initState();
-    // 自動で現在地に移動しないように変更
-    // _moveToCurrentLocation(); // コメントアウト
+    _moveToCurrentLocation();
   }
 
   // 現在地に地図を移動
@@ -44,17 +48,16 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text('🚚 配達マップ (${ProductionConfig.environmentName})'),
+        title: Text('🚚 配達マップ'),
         backgroundColor: Colors.blue.shade100,
         actions: [
-          // 🧪 テストデータボタン（開発環境のみ）
-          if (ProductionConfig.enableTestData)
-            IconButton(
-              icon: const Icon(Icons.science, color: Colors.green),
-              onPressed: () => _showTestDataMenu(context),
-              tooltip: 'テストデータ',
-            ),
-          // 表示切り替えボタン
+          // 現在地移動ボタン
+          IconButton(
+            icon: const Icon(Icons.my_location),
+            onPressed: _moveToCurrentLocation,
+            tooltip: '現在地に移動',
+          ),
+          // 表示切り替えメニュー
           PopupMenuButton<String>(
             icon: const Icon(Icons.filter_list),
             onSelected: (value) {
@@ -76,6 +79,12 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
                 child: Text('🚚 担当中の配達'),
               ),
             ],
+          ),
+          // ログアウトボタン
+          IconButton(
+            icon: const Icon(Icons.logout),
+            onPressed: _logout,
+            tooltip: 'ログアウト',
           ),
         ],
       ),
@@ -250,7 +259,7 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
                 Navigator.pop(context);
                 _showLoadingDialog(context, 'テストデータを作成中...');
                 try {
-                  await TestDataService.createTestData();
+                  // テストデータ作成機能は一時的に無効化
                   Navigator.pop(context); // ローディング閉じる
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(content: Text('✅ テストデータを作成しました')),
@@ -276,7 +285,7 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
             OutlinedButton.icon(
               onPressed: () async {
                 Navigator.pop(context);
-                await TestDataService.checkDataStatus();
+                // データ状態確認機能は一時的に無効化
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('📊 データ状況をログで確認してください')),
                 );
@@ -339,7 +348,7 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
               Navigator.pop(context);
               _showLoadingDialog(context, 'データを削除中...');
               try {
-                await TestDataService.clearAllTestData();
+                // テストデータ削除機能は一時的に無効化
                 Navigator.pop(context); // ローディング閉じる
                 ScaffoldMessenger.of(context).showSnackBar(
                   const SnackBar(content: Text('✅ 全てのデータを削除しました')),
@@ -429,6 +438,7 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
           children: [
             _buildGoogleMap(markers),
             _buildRequestCounter(requests.length, requests),
+            _buildLocationTrackingStatus(), // 🛰️ 位置追跡ステータス
           ],
         );
       },
@@ -535,6 +545,11 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
     }
   }
 
+  // 位置追跡ステータスは表示しない（簡素化のため）
+  Widget _buildLocationTrackingStatus() {
+    return const SizedBox.shrink();
+  }
+
   // 要請リストからマーカーを作成
   Set<Marker> _createMarkersFromRequests(List<DeliveryRequest> requests) {
     return requests.map((request) {
@@ -566,8 +581,8 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
     }
   }
 
-    // Google Map ウィジェットを構築
-  Widget _buildGoogleMap(Set<Marker> markers) {
+    // Google Map ウィジェットを構築（配送員位置マーカーは表示しない）
+    Widget _buildGoogleMap(Set<Marker> markers) {
     return GoogleMap(
       onMapCreated: (GoogleMapController controller) {
         _mapController = controller;
@@ -603,6 +618,7 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
   Future<void> _startDelivery(DeliveryRequest request) async {
     try {
       await FirebaseService.startDelivery(request.id, _deliveryPersonId);
+      
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -623,6 +639,7 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
     try {
       await FirebaseService.completeDelivery(request.id);
       await FirebaseService.recordDeliveryStats(request.id, _deliveryPersonId);
+      
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -633,6 +650,25 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('❌ エラー: $e')),
+        );
+      }
+    }
+  }
+
+  // ログアウト機能 🛡️
+  void _logout() async {
+    try {
+      await FirebaseAuth.instance.signOut();
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (context) => const LoginScreen()),
+          (route) => false,
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('ログアウトエラー: $e')),
         );
       }
     }

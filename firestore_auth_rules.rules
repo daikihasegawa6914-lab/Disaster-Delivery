@@ -1,0 +1,110 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 🛡️ 入力値検証関数（災害時セキュリティ強化）
+    function isValidString(str, maxLength) {
+      return str is string && 
+             str.size() > 0 && 
+             str.size() <= maxLength &&
+             !str.matches('.*[<>"%;()&+].*');
+    }
+    
+    function isValidEmail(email) {
+      return email is string && 
+             email.matches('.*@.*\\..*') &&
+             email.size() <= 100;
+    }
+    
+    function isValidPhoneNumber(phone) {
+      return phone is string && 
+             phone.matches('^[+]?[0-9\\-\\s]{10,15}$');
+    }
+    
+    function isValidCoordinates(lat, lng) {
+      return lat is number && lng is number &&
+             lat >= 35.0 && lat <= 36.0 &&
+             lng >= 139.0 && lng <= 140.5;
+    }
+    
+    function isAuthenticatedDeliveryPerson() {
+      return request.auth != null && 
+             exists(/databases/$(database)/documents/delivery_persons/$(request.auth.uid));
+    }
+    
+    // 📦 配達依頼コレクション（災害時緊急対応）
+    match /requests/{requestId} {
+      // 🔍 読み取り：認証済み配達員のみ
+      allow read: if request.auth != null;
+      
+      // ✍️ 作成：被災者側アプリからのみ（別途設定）
+      allow create: if request.auth != null;
+      
+      // 📝 更新：担当配達員のみ（災害時責任追跡）
+      allow update: if request.auth != null && 
+                       request.auth.uid == resource.data.deliveryPersonId;
+      
+      // 🗑️ 削除：禁止（災害時データ保全）
+      allow delete: if false;
+    }
+    
+    // 🚚 配達員プロフィールコレクション（新規追加）
+    match /delivery_persons/{deliveryPersonId} {
+      // 🔍 読み取り：基本情報のみ公開（災害時身元確認）
+      allow read: if request.auth != null;
+      
+      // ✍️ 作成：本人のみ
+      allow create: if request.auth != null && 
+                       request.auth.uid == deliveryPersonId &&
+                       isValidString(request.resource.data.name, 50) &&
+                       isValidPhoneNumber(request.resource.data.phone);
+      
+      // 📝 更新：本人のみ
+      allow update: if request.auth != null && 
+                       request.auth.uid == deliveryPersonId;
+      
+      // 🗑️ 削除：禁止（災害時身元保持）
+      allow delete: if false;
+    }
+    
+    // 📊 配達記録コレクション
+    match /deliveries/{deliveryId} {
+      // 🔍 読み取り：関係者のみ
+      allow read: if request.auth != null && 
+                     (request.auth.uid == resource.data.deliveryPersonId ||
+                      request.auth.uid == resource.data.requesterId);
+      
+      // ✍️ 作成：配達員のみ
+      allow create: if request.auth != null && 
+                       isAuthenticatedDeliveryPerson();
+      
+      // 📝 更新：禁止（記録改ざん防止）
+      allow update: if false;
+      
+      // 🗑️ 削除：禁止（災害時記録保全）
+      allow delete: if false;
+    }
+    
+    // 🏠 避難所情報コレクション
+    match /shelters/{shelterId} {
+      // 🔍 読み取り：全員可能（災害時公共情報）
+      allow read: if true;
+      
+      // ✍️ 作成・更新・削除：管理者のみ（別途設定）
+      allow write: if false;
+    }
+    
+    // 🔐 認証ログコレクション（災害時監査用）
+    match /auth_logs/{logId} {
+      // 🔍 読み取り：管理者のみ
+      allow read: if false;
+      
+      // ✍️ 作成：システムのみ
+      allow create: if request.auth != null;
+      
+      // 更新・削除：禁止
+      allow update, delete: if false;
+    }
+  }
+}

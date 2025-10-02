@@ -8,12 +8,45 @@ class InputValidator {
     return RegExp(r'^[\w-\.]+@([\w-]+\.)+[\w-]{2,4}$').hasMatch(email);
   }
 
-  // 📱 電話番号検証（日本の形式）
+  // 📱 電話番号検証（日本の形式 - 実際のパターン対応）
   static bool isValidPhoneNumber(String phone) {
     if (phone.isEmpty) return false;
-    // 日本の電話番号形式（090, 080, 070など）
-    final cleanPhone = phone.replaceAll(RegExp(r'[-\s]'), '');
-    return RegExp(r'^(0[789]0|0[0-9]{1,3})[0-9]{4,8}$').hasMatch(cleanPhone);
+    
+    // 数字以外を除去
+    final cleanPhone = phone.replaceAll(RegExp(r'[^\d]'), '');
+    
+    // 携帯電話番号パターン (090, 080, 070, 050)
+    if (RegExp(r'^(090|080|070|050)[0-9]{8}$').hasMatch(cleanPhone)) {
+      return true;
+    }
+    
+    // 固定電話番号パターン
+    // 03-XXXX-XXXX (東京), 06-XXXX-XXXX (大阪), 052-XXX-XXXX (名古屋) など
+    if (RegExp(r'^(0[1-9][0-9]{1,3})[0-9]{4,7}$').hasMatch(cleanPhone)) {
+      return true;
+    }
+    
+    // IP電話などその他のパターン
+    if (RegExp(r'^(050)[0-9]{8}$').hasMatch(cleanPhone)) {
+      return true;
+    }
+    
+    return false;
+  }
+
+  // 🌐 国際電話番号検証（+81 形式）
+  static bool isValidInternationalPhoneNumber(String phone) {
+    if (phone.isEmpty) return false;
+    
+    // +81 で始まる日本の国際形式
+    if (phone.startsWith('+81')) {
+      final withoutCountryCode = phone.substring(3);
+      // 先頭0を除いた日本の番号パターンチェック
+      return RegExp(r'^(90|80|70|50)[0-9]{8}$').hasMatch(withoutCountryCode) ||
+             RegExp(r'^([1-9][0-9]{1,3})[0-9]{4,7}$').hasMatch(withoutCountryCode);
+    }
+    
+    return false;
   }
 
   // 🏠 住所検証

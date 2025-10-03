@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart'; // Color と Colors のため
+import 'constants.dart';
 
 // 👶 簡単に言うと：「配達要請データの設計図」
 class DeliveryRequest {
@@ -34,8 +35,8 @@ class DeliveryRequest {
       requesterName: data['name'] ?? '匿名さん',
       location: data['location'] ?? const GeoPoint(35.681236, 139.767125),
       timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
-      status: data['status'] ?? 'waiting',
-      priority: data['priority'] ?? 'medium',
+  status: data['status'] ?? RequestStatus.waiting,
+  priority: data['priority'] ?? RequestPriority.medium,
       deliveryPersonId: data['deliveryPersonId'],
       phone: data['phone'],
     );
@@ -76,9 +77,9 @@ class DeliveryRequest {
   // 緊急度に応じた色を返す
   String get priorityColor {
     switch (priority) {
-      case 'high': return '🔴'; // 赤：緊急
-      case 'medium': return '🟡'; // 黄：普通
-      case 'low': return '🟢'; // 緑：低い
+      case RequestPriority.high: return '🔴'; // 赤：緊急
+      case RequestPriority.medium: return '🟡'; // 黄：普通
+      case RequestPriority.low: return '🟢'; // 緑：低い
       default: return '🟡';
     }
   }
@@ -86,9 +87,9 @@ class DeliveryRequest {
   // 状態に応じたアイコンを返す
   String get statusIcon {
     switch (status) {
-      case 'waiting': return '⏳'; // 待機中
-      case 'delivering': return '🚚'; // 配達中
-      case 'completed': return '✅'; // 完了
+      case RequestStatus.waiting: return '⏳'; // 待機中
+      case RequestStatus.delivering: return '🚚'; // 配達中
+      case RequestStatus.completed: return '✅'; // 完了
       default: return '❓';
     }
   }

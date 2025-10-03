@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:flutter/foundation.dart';
 import 'models.dart';
+import 'constants.dart';
 
 // 👶 簡単に言うと：「Firebaseとやりとりする専門家」
 class FirebaseService {
@@ -17,7 +18,7 @@ class FirebaseService {
   static Stream<List<DeliveryRequest>> getWaitingRequests() {
     return _firestore
         .collection(requestsCollection)
-        .where('status', isEqualTo: 'waiting')
+  .where('status', isEqualTo: RequestStatus.waiting)
         // orderBy を一時的に削除してインデックスエラーを回避
         .snapshots()
         .map((snapshot) => snapshot.docs
@@ -29,8 +30,8 @@ class FirebaseService {
   static Stream<List<DeliveryRequest>> getMyDeliveries(String deliveryPersonId) {
     return _firestore
         .collection(requestsCollection)
-        .where('assignedDeliveryPersonId', isEqualTo: deliveryPersonId)
-        .where('status', whereIn: ['assigned', 'delivering'])
+  .where('assignedDeliveryPersonId', isEqualTo: deliveryPersonId)
+  .where('status', whereIn: [RequestStatus.assigned, RequestStatus.delivering])
         .snapshots()
         .map((snapshot) => snapshot.docs
             .map((doc) => DeliveryRequest.fromFirestore(doc))
@@ -51,17 +52,26 @@ class FirebaseService {
   // �🎯 配達を開始する
   static Future<void> startDelivery(String requestId, String deliveryPersonId) async {
     await _firestore.collection(requestsCollection).doc(requestId).update({
-      'status': 'assigned',
+      'status': RequestStatus.assigned,
       'assignedDeliveryPersonId': deliveryPersonId,
       'assignedAt': FieldValue.serverTimestamp(),
       'estimatedDeliveryTime': DateTime.now().add(const Duration(hours: 1)).millisecondsSinceEpoch,
     });
   }
 
+  // 🤝 要請を引き受ける（assign 専用。UI上は「この配達を引き受ける」）
+  static Future<void> assignDelivery(String requestId, String deliveryPersonId) async {
+    await _firestore.collection(requestsCollection).doc(requestId).update({
+      'status': RequestStatus.assigned,
+      'assignedDeliveryPersonId': deliveryPersonId,
+      'assignedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
   // 🚚 配達中ステータスに更新
   static Future<void> markAsDelivering(String requestId) async {
     await _firestore.collection(requestsCollection).doc(requestId).update({
-      'status': 'delivering',
+      'status': RequestStatus.delivering,
       'deliveryStartedAt': FieldValue.serverTimestamp(),
     });
   }
@@ -69,7 +79,7 @@ class FirebaseService {
   // ✅ 配達を完了する
   static Future<void> completeDelivery(String requestId) async {
     await _firestore.collection(requestsCollection).doc(requestId).update({
-      'status': 'completed',
+      'status': RequestStatus.completed,
       'completedTime': FieldValue.serverTimestamp(),
     });
   }
@@ -87,8 +97,8 @@ class FirebaseService {
   static Stream<List<DeliveryRequest>> getEmergencyRequests() {
     return _firestore
         .collection(requestsCollection)
-        .where('status', isEqualTo: 'waiting')
-        .where('priority', isEqualTo: 'high')
+  .where('status', isEqualTo: RequestStatus.waiting)
+  .where('priority', isEqualTo: RequestPriority.high)
         // .orderBy('timestamp', descending: false) // 一時的にコメントアウト
         .snapshots()
         .map((snapshot) => snapshot.docs

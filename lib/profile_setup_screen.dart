@@ -356,99 +356,65 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
     setState(() => _isLoading = true);
 
     try {
-      final user = _auth.currentUser;
-      
-      // 🛠️ テストモード用の処理
+      debugPrint('[PROFILE] save start');
+      var user = _auth.currentUser;
       if (user == null) {
-        // テストモードまたは開発環境での処理
-        if (const bool.fromEnvironment('dart.vm.product') == false) {
-          await _saveTestProfile();
-          return;
-        } else {
-          throw Exception('ユーザーが認証されていません');
-        }
+        // main.dartで匿名認証実施済み想定。ここに来た場合は再試行。
+        final cred = await FirebaseAuth.instance.signInAnonymously();
+        user = cred.user;
       }
 
       String? imageUrl;
       
       // 📷 プロフィール画像をアップロード
       if (_profileImage != null) {
-        final ref = _storage.ref().child('profile_images/${user.uid}.jpg');
-        await ref.putFile(_profileImage!);
-        imageUrl = await ref.getDownloadURL();
+        final currentUid = user?.uid ?? FirebaseAuth.instance.currentUser!.uid;
+        // Storage ルール match /profile_images/{userId} に合わせて拡張子を付けずに保存
+        final ref = _storage.ref().child('profile_images/$currentUid');
+        try {
+          await ref.putFile(_profileImage!);
+          imageUrl = await ref.getDownloadURL();
+          debugPrint('[PROFILE][IMAGE] uploaded');
+        } catch (e) {
+          debugPrint('[PROFILE][IMAGE][WARN] upload skipped: $e');
+          // 画像失敗は致命ではないので続行
+        }
       }
 
       // 💾 Firestoreにプロフィール保存
-      await _firestore.collection('delivery_persons').doc(user.uid).set({
-        'uid': user.uid,
+      final uid = FirebaseAuth.instance.currentUser!.uid;
+      debugPrint('[PROFILE] writing doc uid=$uid');
+      await _firestore.collection('delivery_persons').doc(uid).set({
+        'uid': uid,
         'name': _nameController.text.trim(),
-        'phone': user.phoneNumber,
         'vehicleType': _selectedVehicleType,
         'vehicleNumber': _vehicleController.text.trim(),
         'profileImageUrl': imageUrl,
         'createdAt': FieldValue.serverTimestamp(),
         'isActive': true,
-        'rating': 5.0, // 初期評価
-        'deliveryCount': 0, // 配達回数
+        // rating / deliveryCount など評価系はルール必須外のため一旦省略
       });
 
       // 📱 ローカルにも保存
       final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('delivery_person_id', user.uid);
+  await prefs.setString('delivery_person_id', uid);
       await prefs.setString('delivery_person_name', _nameController.text.trim());
 
       // ✅ 配達マップ画面へ
       if (mounted) {
         _showSnackBar('🎉 新規配達員として登録が完了しました！');
-        await Future.delayed(const Duration(milliseconds: 1500)); // メッセージ表示時間
-        Navigator.of(context).pushReplacementNamed('/delivery_map');
+        await Future.delayed(const Duration(milliseconds: 800));
+        debugPrint('[PROFILE] navigate -> /main');
+        Navigator.of(context).pushReplacementNamed('/main');
       }
     } catch (e) {
       setState(() => _isLoading = false);
+      debugPrint('[PROFILE][ERROR] $e');
       _showSnackBar('❌ 新規配達員登録に失敗しました: $e');
     }
   }
 
-  // 🛠️ テストモード用のプロフィール保存
-  Future<void> _saveTestProfile() async {
-    try {
-      // テスト用のユーザーID生成
-      final testUserId = 'test_user_${DateTime.now().millisecondsSinceEpoch}';
-      
-      // 💾 Firestoreにテストプロフィール保存
-      await _firestore.collection('delivery_persons').doc(testUserId).set({
-        'uid': testUserId,
-        'name': _nameController.text.trim(),
-        'phone': '+819999999999', // テスト用電話番号
-        'vehicleType': _selectedVehicleType,
-        'vehicleNumber': _vehicleController.text.trim(),
-        'profileImageUrl': null, // テストモードでは画像なし
-        'createdAt': FieldValue.serverTimestamp(),
-        'isActive': true,
-        'rating': 5.0,
-        'deliveryCount': 0,
-        'isTestUser': true, // テストユーザーフラグ
-      });
-
-      // 📱 ローカルにも保存
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('delivery_person_id', testUserId);
-      await prefs.setString('delivery_person_name', _nameController.text.trim());
-      await prefs.setBool('is_test_user', true);
-
-      setState(() => _isLoading = false);
-
-      // ✅ 配達マップ画面へ
-      if (mounted) {
-        _showSnackBar('🛠️ テストモードで配達員登録が完了しました！');
-        await Future.delayed(const Duration(milliseconds: 1500));
-        Navigator.of(context).pushReplacementNamed('/delivery_map');
-      }
-    } catch (e) {
-      setState(() => _isLoading = false);
-      _showSnackBar('❌ テスト登録に失敗しました: $e');
-    }
-  }
+  // _saveTestProfile 削除（匿名認証＋単一フローに統合）
 
   // 📢 スナックバー表示
   void _showSnackBar(String message) {

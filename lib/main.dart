@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'package:firebase_auth/firebase_auth.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+// 認証は一時凍結（指令1）。FirebaseAuth/Firestore の起動時プロフィール判定は撤去。
 import 'firebase_options.dart';
 import 'security/secure_error_handler.dart';
 import 'security/optimized_firestore.dart';
-import 'firestore_initializer.dart';
-import 'login_screen.dart';
+// import 'firestore_initializer.dart'; // ルール厳格化後は初期テストデータ挿入を停止
+import 'package:firebase_auth/firebase_auth.dart';
+import 'main_screen.dart';
 import 'profile_setup_screen.dart';
-import 'delivery_map_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 void main() async {
   // 👶 簡単に言うと：「アプリを始める前の準備」
@@ -25,22 +25,39 @@ void main() async {
   );
   
   // Firebaseに接続（既存の設定を使用）
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  try {
+    debugPrint('[BOOT] Firebase.initializeApp start');
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    debugPrint('[BOOT] Firebase.initializeApp done');
+  } catch (e, st) {
+    debugPrint('[BOOT][ERROR] Firebase init failed: $e\n$st');
+  }
   
   // 🚀 Firestore最適化設定
-  await OptimizedFirestoreConfig.enableOfflineSupport();
-  
-  // 🗄️ データベース初期化（初回のみ実行）
   try {
-    await FirestoreInitializer.initializeDatabase();
+    debugPrint('[BOOT] Firestore offline enable start');
+    await OptimizedFirestoreConfig.enableOfflineSupport();
+    debugPrint('[BOOT] Firestore offline enable done');
   } catch (e) {
-    print('🗄️ [INFO] データベースは既に初期化済み、またはオフライン: $e');
+    debugPrint('[BOOT][WARN] Firestore offline config failed: $e');
   }
+  
+  // � 匿名認証を必ず確立（Firestoreルール: request.auth != null 対応）
+  await _ensureAnonymousAuth();
+  debugPrint('[BOOT] Anonymous auth uid=${FirebaseAuth.instance.currentUser?.uid}');
   
   // 配達員用アプリを起動
   runApp(const DeliveryApp());
+}
+
+// 匿名ログインを保証
+Future<void> _ensureAnonymousAuth() async {
+  final auth = FirebaseAuth.instance;
+  if (auth.currentUser == null) {
+    await auth.signInAnonymously();
+  }
 }
 
 class DeliveryApp extends StatelessWidget {
@@ -58,85 +75,59 @@ class DeliveryApp extends StatelessWidget {
           foregroundColor: Colors.blue.shade800,
         ),
       ),
-      home: const AuthWrapper(), // 認証状態による画面切り替え
+      // 指令1: 起動時ユーザーフロー統一。AuthWrapper 廃止し、ローカル登録状態で分岐。
+      home: const StartupFlowWrapper(),
       routes: {
-        '/login': (context) => const LoginScreen(),
+        '/main': (context) => const MainScreen(),
         '/profile_setup': (context) => const ProfileSetupScreen(),
-        '/delivery_map': (context) => const DeliveryMapScreen(),
       },
       debugShowCheckedModeBanner: false,
     );
   }
 }
 
-// 🔐 認証状態管理ラッパー
-class AuthWrapper extends StatelessWidget {
-  const AuthWrapper({super.key});
+// � 起動時フロー: SharedPreferences で delivery_person_id を確認
+class StartupFlowWrapper extends StatefulWidget {
+  const StartupFlowWrapper({super.key});
+
+  @override
+  State<StartupFlowWrapper> createState() => _StartupFlowWrapperState();
+}
+
+class _StartupFlowWrapperState extends State<StartupFlowWrapper> {
+  Future<String?>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _loadPersonId();
+  }
+
+  Future<String?> _loadPersonId() async {
+    final prefs = await SharedPreferences.getInstance();
+    try {
+      final id = prefs.getString('delivery_person_id');
+      debugPrint('[FLOW] Loaded delivery_person_id=$id');
+      return id;
+    } catch (e) {
+      debugPrint('[FLOW][ERROR] SharedPreferences load failed: $e');
+      rethrow;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<User?>(
-      stream: FirebaseAuth.instance.authStateChanges(),
+    return FutureBuilder<String?>(
+      future: _future,
       builder: (context, snapshot) {
-        // 認証状態の確認中
-        if (snapshot.connectionState == ConnectionState.waiting) {
-          return const Scaffold(
-            backgroundColor: Colors.blue,
+        if (snapshot.hasError) {
+          return Scaffold(
             body: Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(
-                    Icons.delivery_dining,
-                    size: 80,
-                    color: Colors.white,
-                  ),
-                  SizedBox(height: 20),
-                  CircularProgressIndicator(color: Colors.white),
-                  SizedBox(height: 20),
-                  Text(
-                    '🚚 災害配達員アプリ\n起動中...',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      color: Colors.white,
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
-                ],
-              ),
+              child: Text('初期化エラー: ${snapshot.error}', style: const TextStyle(color: Colors.red)),
             ),
           );
         }
-
-        // 認証済みの場合
-        if (snapshot.hasData && snapshot.data != null) {
-          return const ProfileCheckWrapper();
-        }
-
-        // 未認証の場合はログイン画面
-        return const LoginScreen();
-      },
-    );
-  }
-}
-
-// 👤 プロフィール設定状態チェック
-class ProfileCheckWrapper extends StatelessWidget {
-  const ProfileCheckWrapper({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-    if (user == null) return const LoginScreen();
-
-    return FutureBuilder<DocumentSnapshot>(
-      future: FirebaseFirestore.instance
-          .collection('delivery_persons')
-          .doc(user.uid)
-          .get(),
-      builder: (context, snapshot) {
-        if (snapshot.connectionState == ConnectionState.waiting) {
+        if (snapshot.connectionState != ConnectionState.done) {
           return const Scaffold(
             backgroundColor: Colors.blue,
             body: Center(
@@ -144,14 +135,8 @@ class ProfileCheckWrapper extends StatelessWidget {
             ),
           );
         }
-
-        // プロフィール設定済みの場合は配達マップ画面へ
-        if (snapshot.hasData && snapshot.data!.exists) {
-          return const DeliveryMapScreen();
-        }
-
-        // プロフィール未設定の場合は設定画面へ
-        return const ProfileSetupScreen();
+        final hasId = (snapshot.data != null && snapshot.data!.isNotEmpty);
+        return hasId ? const MainScreen() : const ProfileSetupScreen();
       },
     );
   }

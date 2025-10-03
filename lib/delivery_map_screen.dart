@@ -120,11 +120,22 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
   }
 
   Marker _markerFromRequest(DeliveryRequest r) {
+    // マーカー色: waiting=赤, assigned/delivering=青, completed=緑
+    double hue;
+    if (r.status == RequestStatus.waiting) {
+      hue = BitmapDescriptor.hueRed;
+    } else if (r.status == RequestStatus.completed) {
+      hue = BitmapDescriptor.hueGreen;
+    } else { // assigned / delivering
+      hue = BitmapDescriptor.hueBlue;
+    }
+
     return Marker(
       markerId: MarkerId(r.id),
       position: LatLng(r.location.latitude, r.location.longitude),
       infoWindow: InfoWindow(title: '${r.priorityColor} ${r.item}', snippet: r.status),
       onTap: () => _showDetail(r),
+      icon: BitmapDescriptor.defaultMarkerWithHue(hue),
     );
   }
 
@@ -153,7 +164,22 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
               Text('要請者: ${r.requesterName}'),
               if (r.phone != null) Text('連絡先: ${r.phone}'),
               const SizedBox(height: 16),
-              if (r.status == RequestStatus.waiting)
+              // 競合 UI 制御判定
+              if (((r.status == RequestStatus.assigned) || (r.status == RequestStatus.delivering)) && !(r.deliveryPersonId == _personId && _personId.isNotEmpty))
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.blue.shade50,
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: Colors.blue.shade200),
+                  ),
+                  child: const Text(
+                    '🚫 他の配達員が対応中です',
+                    style: TextStyle(fontWeight: FontWeight.bold, color: Colors.blue),
+                  ),
+                )
+              else if (r.status == RequestStatus.waiting)
                 SizedBox(
                   width: double.infinity,
                   child: ElevatedButton.icon(
@@ -161,13 +187,36 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
                     label: const Text('🤝 この配達を引き受ける'),
                     onPressed: _personId.isEmpty ? null : () async {
                       try {
+                        final navigator = Navigator.of(context);
                         await FirebaseService.assignDelivery(r.id, _personId);
-                        if (mounted) Navigator.pop(context);
+                        if (!mounted) return;
+                        navigator.pop();
                       } catch (e) {
+                        if (!mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('失敗: $e')));
                       }
                     },
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
+                  ),
+                )
+              else if (r.status == RequestStatus.assigned && r.deliveryPersonId == _personId)
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton.icon(
+                    icon: const Icon(Icons.rocket_launch),
+                    label: const Text('🚀 配達開始'),
+                    onPressed: () async {
+                      try {
+                        final navigator = Navigator.of(context);
+                        await FirebaseService.startDelivery(r.id, _personId);
+                        if (!mounted) return;
+                        navigator.pop();
+                      } catch (e) {
+                        if (!mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('失敗: $e')));
+                      }
+                    },
+                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
                   ),
                 )
               else if (r.status == RequestStatus.delivering)
@@ -178,9 +227,12 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
                     label: const Text('✅ 配達完了'),
                     onPressed: () async {
                       try {
+                        final navigator = Navigator.of(context);
                         await FirebaseService.completeDelivery(r.id);
-                        if (mounted) Navigator.pop(context);
+                        if (!mounted) return;
+                        navigator.pop();
                       } catch (e) {
+                        if (!mounted) return;
                         ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('失敗: $e')));
                       }
                     },

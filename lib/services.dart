@@ -49,15 +49,6 @@ class FirebaseService {
             .toList());
   }
 
-  // �🎯 配達を開始する
-  static Future<void> startDelivery(String requestId, String deliveryPersonId) async {
-    await _firestore.collection(requestsCollection).doc(requestId).update({
-      'status': RequestStatus.assigned,
-      'assignedDeliveryPersonId': deliveryPersonId,
-      'assignedAt': FieldValue.serverTimestamp(),
-      'estimatedDeliveryTime': DateTime.now().add(const Duration(hours: 1)).millisecondsSinceEpoch,
-    });
-  }
 
   // 🤝 要請を引き受ける（assign 専用。UI上は「この配達を引き受ける」）
   static Future<void> assignDelivery(String requestId, String deliveryPersonId) async {
@@ -68,10 +59,11 @@ class FirebaseService {
     });
   }
 
-  // 🚚 配達中ステータスに更新
-  static Future<void> markAsDelivering(String requestId) async {
+  // 🚀 配達開始（assigned → delivering）
+  static Future<void> startDelivery(String requestId, String deliveryPersonId) async {
     await _firestore.collection(requestsCollection).doc(requestId).update({
       'status': RequestStatus.delivering,
+      'deliveryPersonId': deliveryPersonId, // 念のため保持
       'deliveryStartedAt': FieldValue.serverTimestamp(),
     });
   }

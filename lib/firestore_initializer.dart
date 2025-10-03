@@ -1,3 +1,5 @@
+// ignore_for_file: avoid_print
+// 🔧 Deprecated test seeding utility (保持理由: 参考用サンプル). 本番ビルドでは未使用。
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 // 🗄️ Firestoreデータベース初期化とテストデータ作成
@@ -10,9 +12,10 @@ class FirestoreInitializer {
       // 既存の requests コレクションにテストデータを追加（もし空であれば）
       await _createSimpleTestData();
       
-      print('🏗️ [INFO] 簡易データベース初期化完了');
+  // 初期化ログ (デモ用途) ※ 本番未使用
+  // print('🏗️ [INFO] 簡易データベース初期化完了');
     } catch (e) {
-      print('🏗️ [INFO] データベースは既に存在するか、オフライン: $e');
+  // print('🏗️ [INFO] データベースは既に存在するか、オフライン: $e');
     }
   }
 

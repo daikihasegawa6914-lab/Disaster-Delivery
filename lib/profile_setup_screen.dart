@@ -400,13 +400,20 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   await prefs.setString('delivery_person_id', uid);
       await prefs.setString('delivery_person_name', _nameController.text.trim());
 
-      // ✅ 配達マップ画面へ
-      if (mounted) {
-        _showSnackBar('🎉 新規配達員として登録が完了しました！');
-        await Future.delayed(const Duration(milliseconds: 800));
-        debugPrint('[PROFILE] navigate -> /main');
-        Navigator.of(context).pushReplacementNamed('/main');
-      }
+      // ✅ 配達マップ画面へ (context安全対策)
+      if (!mounted) return; // 画面が dispose 済みなら終了
+      final messenger = ScaffoldMessenger.of(context);
+      final navigator = Navigator.of(context);
+      messenger.showSnackBar(
+        SnackBar(
+          content: const Text('🎉 新規配達員として登録が完了しました！'),
+          backgroundColor: Colors.blue.shade800,
+        ),
+      );
+      await Future.delayed(const Duration(milliseconds: 800));
+      if (!mounted) return; // 待機中に外れた場合
+      debugPrint('[PROFILE] navigate -> /main');
+      navigator.pushReplacementNamed('/main');
     } catch (e) {
       setState(() => _isLoading = false);
       debugPrint('[PROFILE][ERROR] $e');

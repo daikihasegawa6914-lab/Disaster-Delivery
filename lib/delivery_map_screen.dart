@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'models.dart';
@@ -7,14 +9,17 @@ import 'constants.dart';
 
 class DeliveryMapScreen extends StatefulWidget {
   const DeliveryMapScreen({super.key});
+  static DeliveryMapScreenState? of(BuildContext context) => context.findAncestorStateOfType<DeliveryMapScreenState>();
   @override
-  State<DeliveryMapScreen> createState() => _DeliveryMapScreenState();
+  State<DeliveryMapScreen> createState() => DeliveryMapScreenState();
 }
 
-class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
+class DeliveryMapScreenState extends State<DeliveryMapScreen> {
   GoogleMapController? _mapController;
   String _currentView = 'all';
   String _personId = '';
+  List<Shelter> _shelters = [];
+  StreamSubscription<List<Shelter>>? _shelterSub;
 
   @override
   void initState() {
@@ -22,13 +27,34 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
     _init();
   }
 
+  Future<void> moveCameraTo(LatLng latLng, {double zoom = 15}) async {
+    if (_mapController == null) return;
+    await _mapController!.animateCamera(CameraUpdate.newCameraPosition(CameraPosition(target: latLng, zoom: zoom)));
+  }
+
   Future<void> _init() async {
     debugPrint('[MAP] init start');
+    // 避難所ストリーム購読（open のみ）
+    _shelterSub = ShelterService.getAvailableShelters().listen((data) {
+      if (mounted) setState(() => _shelters = data);
+    });
+    // 一度だけシード実行（許可ルールがある場合のみ）
+    try {
+      await ShelterService.seedProvidedSheltersIfMissing();
+    } catch (e) {
+      debugPrint('[SEED][WARN] shelter seed failed: $e');
+    }
     await _loadPersonId();
     debugPrint('[MAP] personId=$_personId');
     await _moveToCurrentLocation();
     if (mounted) setState(() {});
     debugPrint('[MAP] init done');
+  }
+
+  @override
+  void dispose() {
+    _shelterSub?.cancel();
+    super.dispose();
   }
 
   Future<void> _loadPersonId() async {
@@ -66,14 +92,6 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
             icon: const Icon(Icons.my_location),
             onPressed: _moveToCurrentLocation,
           ),
-          PopupMenuButton<String>(
-            icon: const Icon(Icons.filter_list),
-            onSelected: (v) => setState(() => _currentView = v),
-            itemBuilder: (c) => const [
-              PopupMenuItem(value: 'all', child: Text('📋 全て')),
-              PopupMenuItem(value: 'emergency', child: Text('🆘 緊急')),
-            ],
-          ),
         ],
       ),
       body: _buildMapWithRequests(),
@@ -103,17 +121,46 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
         final requests = snap.data ?? [];
         debugPrint('[MAP] requests len=${requests.length}');
         final markers = requests.map(_markerFromRequest).toSet();
-        return GoogleMap(
+        final map = GoogleMap(
           onMapCreated: (c) {
             _mapController = c;
             debugPrint('[MAP] map created');
           },
           myLocationEnabled: true,
+          myLocationButtonEnabled: false, // 重複するデフォルト現在地ボタンを非表示
+          zoomControlsEnabled: false,
           initialCameraPosition: const CameraPosition(
             target: LatLng(35.681236, 139.767125),
             zoom: 12,
           ),
           markers: markers,
+        );
+        // 緊急件数バッジ用ストリーム（高優先度 waiting）
+        return Stack(
+          children: [
+            map,
+            Positioned(
+              top: 8,
+              left: 8,
+              child: StreamBuilder<List<DeliveryRequest>>(
+                stream: FirebaseService.getEmergencyRequests(),
+                builder: (context, es) {
+                  final cnt = es.data?.length ?? 0;
+                  if (cnt == 0) return const SizedBox.shrink();
+                  return AnimatedContainer(
+                    duration: const Duration(milliseconds: 250),
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    decoration: BoxDecoration(
+                      color: Colors.red.shade700.withOpacity(0.9),
+                      borderRadius: BorderRadius.circular(24),
+                      boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
+                    ),
+                    child: Text('🆘 緊急: $cnt件', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                  );
+                },
+              ),
+            ),
+          ],
         );
       },
     );
@@ -130,19 +177,51 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
       hue = BitmapDescriptor.hueBlue;
     }
 
+    final shelter = _findShelterForRequest(r);
+    final snippet = shelter != null ? '🏥 ${shelter.name} / ${r.status}' : r.status;
+
     return Marker(
       markerId: MarkerId(r.id),
       position: LatLng(r.location.latitude, r.location.longitude),
-      infoWindow: InfoWindow(title: '${r.priorityColor} ${r.item}', snippet: r.status),
-      onTap: () => _showDetail(r),
+      infoWindow: InfoWindow(title: '${r.priorityColor} ${r.item}', snippet: snippet),
+      onTap: () {
+        moveCameraTo(LatLng(r.location.latitude, r.location.longitude), zoom: 17);
+        _showDetail(r);
+      },
       icon: BitmapDescriptor.defaultMarkerWithHue(hue),
     );
+  }
+
+  Shelter? _findShelterForRequest(DeliveryRequest r) {
+    if (_shelters.isEmpty) return null;
+    // 1. shelterId 直接一致
+    if (r.shelterId != null) {
+      try {
+        return _shelters.firstWhere((e) => e.id == r.shelterId);
+      } catch (_) {}
+    }
+    // 2. 位置完全一致
+    try {
+      final exact = _shelters.firstWhere(
+        (e) => e.location.latitude == r.location.latitude && e.location.longitude == r.location.longitude,
+      );
+      return exact;
+    } catch (_) {}
+    // 3. 近接一致（~20m 以内）
+    const threshold = 0.0002; // 約 20m 目安
+    for (final s in _shelters) {
+      final dLat = (s.location.latitude - r.location.latitude).abs();
+      final dLng = (s.location.longitude - r.location.longitude).abs();
+      if (dLat < threshold && dLng < threshold) return s;
+    }
+    return null;
   }
 
   void _showDetail(DeliveryRequest r) {
     showModalBottomSheet(
       context: context,
       builder: (c) {
+        final shelter = _findShelterForRequest(r);
         return Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -161,9 +240,19 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
               ),
               const SizedBox(height: 12),
               Text('状態: ${r.status}'),
-              Text('要請者: ${r.requesterName}'),
+              if (shelter != null) Text('避難所: ${shelter.name}'),
+              Text('要請者: ${(r.requesterName.isEmpty ? null : r.requesterName) ?? '匿名さん'}'),
               if (r.phone != null) Text('連絡先: ${r.phone}'),
               const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.directions),
+                  label: const Text('経路案内'),
+                  onPressed: () => _launchExternalNav(r.location.latitude, r.location.longitude, label: shelter?.name ?? r.item),
+                ),
+              ),
+              const SizedBox(height: 8),
               // 競合 UI 制御判定
               if (((r.status == RequestStatus.assigned) || (r.status == RequestStatus.delivering)) && !(r.deliveryPersonId == _personId && _personId.isNotEmpty))
                 Container(
@@ -252,5 +341,14 @@ class _DeliveryMapScreenState extends State<DeliveryMapScreen> {
         );
       },
     );
+  }
+
+  Future<void> _launchExternalNav(double lat, double lng, {String? label}) async {
+    final uri = Uri.parse('https://www.google.com/maps/dir/?api=1&destination=$lat,$lng&travelmode=driving&destination_place_id=&destination_name=${Uri.encodeComponent(label ?? '目的地')}');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } else {
+      if (mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('地図アプリを開けませんでした')));
+    }
   }
 }

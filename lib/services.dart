@@ -30,7 +30,7 @@ class FirebaseService {
   static Stream<List<DeliveryRequest>> getMyDeliveries(String deliveryPersonId) {
     return _firestore
         .collection(requestsCollection)
-  .where('assignedDeliveryPersonId', isEqualTo: deliveryPersonId)
+  .where('deliveryPersonId', isEqualTo: deliveryPersonId)
   .where('status', whereIn: [RequestStatus.assigned, RequestStatus.delivering])
         .snapshots()
         .map((snapshot) => snapshot.docs
@@ -54,8 +54,10 @@ class FirebaseService {
   static Future<void> assignDelivery(String requestId, String deliveryPersonId) async {
     await _firestore.collection(requestsCollection).doc(requestId).update({
       'status': RequestStatus.assigned,
-      'assignedDeliveryPersonId': deliveryPersonId,
+      // 担当者IDを一本化
+      'deliveryPersonId': deliveryPersonId,
       'assignedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
     });
   }
 
@@ -65,6 +67,7 @@ class FirebaseService {
       'status': RequestStatus.delivering,
       'deliveryPersonId': deliveryPersonId, // 念のため保持
       'deliveryStartedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
     });
   }
 
@@ -73,6 +76,7 @@ class FirebaseService {
     await _firestore.collection(requestsCollection).doc(requestId).update({
       'status': RequestStatus.completed,
       'completedTime': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
     });
   }
 
@@ -266,5 +270,83 @@ class ShelterService {
     
     await batch.commit();
     debugPrint('✅ 避難所データを作成しました');
+  }
+
+  // 指定リスト（名前 + 緯度経度）をシード（存在しない name のみ追加）
+  static Future<void> seedProvidedSheltersIfMissing() async {
+    final seeds = [
+      {'name': '真田堀運動場', 'lat': 35.68278, 'lng': 139.731059},
+      {'name': '外濠公園', 'lat': 35.68864, 'lng': 139.73097},
+      {'name': '麹町小学校', 'lat': 35.685573, 'lng': 139.739317},
+      {'name': '九段小学校', 'lat': 35.690366, 'lng': 139.740845},
+      {'name': '番町小学校', 'lat': 35.688163, 'lng': 139.734126},
+      {'name': '麹町中学校', 'lat': 35.680493, 'lng': 139.73867},
+      {'name': '富士見みらい館', 'lat': 35.697182, 'lng': 139.746403},
+      {'name': '神田一橋中学校', 'lat': 35.694133, 'lng': 139.756828},
+      {'name': '神田さくら館', 'lat': 35.693327, 'lng': 139.768393},
+      {'name': '昌平童夢館', 'lat': 35.701306, 'lng': 139.769766},
+      {'name': 'アーツ千代田3331', 'lat': 35.704267, 'lng': 139.770632},
+    ];
+
+    WriteBatch batch = _firestore.batch();
+    int addCount = 0;
+    for (final s in seeds) {
+      final existing = await _firestore
+          .collection(sheltersCollection)
+          .where('name', isEqualTo: s['name'])
+          .limit(1)
+          .get();
+      if (existing.docs.isNotEmpty) continue;
+      final docRef = _firestore.collection(sheltersCollection).doc();
+      batch.set(docRef, {
+        'name': s['name'],
+        'address': '',
+        'location': GeoPoint(s['lat'] as double, s['lng'] as double),
+        'capacity': 300,
+        'currentOccupancy': 0,
+        'facilities': [],
+        'status': 'open',
+        'contactPhone': null,
+        'lastUpdated': FieldValue.serverTimestamp(),
+      });
+      addCount++;
+    }
+    if (addCount > 0) {
+      await batch.commit();
+      debugPrint('✅ shelter seed inserted: $addCount');
+    } else {
+      debugPrint('ℹ️ shelter seed: no new docs');
+    }
+  }
+
+  // 🧹 シードした簡易避難所( address=='' かつ facilities 空など )を削除
+  static Future<int> deleteSeededSimpleShelters() async {
+    final snap = await _firestore
+        .collection(sheltersCollection)
+        .where('address', isEqualTo: '')
+        .get();
+    if (snap.docs.isEmpty) {
+      debugPrint('🧹 削除対象シード避難所なし');
+      return 0;
+    }
+    int deleted = 0;
+    WriteBatch batch = _firestore.batch();
+    for (final d in snap.docs) {
+      final data = d.data();
+      final facilities = data['facilities'];
+      final capacity = data['capacity'];
+      final currentOccupancy = data['currentOccupancy'];
+      if ((facilities is List && facilities.isEmpty) && capacity == 300 && currentOccupancy == 0) {
+        batch.delete(d.reference);
+        deleted++;
+      }
+    }
+    if (deleted > 0) {
+      await batch.commit();
+      debugPrint('🧹 シード避難所削除: $deleted 件');
+    } else {
+      debugPrint('🧹 条件一致なし (address=='' はあるが判定除外)');
+    }
+    return deleted;
   }
 }

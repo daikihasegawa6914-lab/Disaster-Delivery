@@ -39,6 +39,7 @@ dependencies:
   geolocator: ^14.0.2
   cloud_firestore: ^5.6.12
   flutter_dotenv: ^5.1.0
+  url_launcher: ^6.3.0
   
   # Firebase Authentication関連
   firebase_auth: ^5.7.0

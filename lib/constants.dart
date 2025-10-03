@@ -16,7 +16,6 @@ class RequestPriority {
 /// Firestore フィールド名の集中定義 (変更耐性向上)
 class FirestoreFields {
   static const String status = 'status';
-  static const String assignedDeliveryPersonId = 'assignedDeliveryPersonId';
   static const String priority = 'priority';
   static const String completedAt = 'completedAt';
   static const String assignedAt = 'assignedAt';

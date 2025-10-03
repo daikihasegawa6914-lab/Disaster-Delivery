@@ -13,6 +13,7 @@ class DeliveryRequest {
   final String priority;          // 緊急度
   final String? deliveryPersonId; // 配達員ID（配達中の場合）
   final String? phone;            // 連絡先（任意）
+  final String? shelterId;        // 紐付く避難所ID（任意、集計用）
 
   DeliveryRequest({
     required this.id,
@@ -24,6 +25,7 @@ class DeliveryRequest {
     required this.priority,
     this.deliveryPersonId,
     this.phone,
+    this.shelterId,
   });
 
   // Firestoreからデータを取得するときの変換
@@ -31,28 +33,36 @@ class DeliveryRequest {
     final data = doc.data() as Map<String, dynamic>;
     return DeliveryRequest(
       id: doc.id,
-      item: data['item'] ?? '',
-      requesterName: data['name'] ?? '匿名さん',
+      // 互換: itemName / item の両対応（将来的に itemName に統一するならここを変更）
+      item: data['itemName'] ?? data['item'] ?? '',
+	// 互換: requesterName / userName / name を順に参照
+	requesterName: data['requesterName'] ?? data['userName'] ?? data['name'] ?? '匿名さん',
       location: data['location'] ?? const GeoPoint(35.681236, 139.767125),
       timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
   status: data['status'] ?? RequestStatus.waiting,
   priority: data['priority'] ?? RequestPriority.medium,
       deliveryPersonId: data['deliveryPersonId'],
       phone: data['phone'],
+      shelterId: data['shelterId'],
     );
   }
 
   // Firestoreに保存するときの変換
   Map<String, dynamic> toFirestore() {
     return {
+      // 新フィールド
+      'itemName': item,
+      'requesterName': requesterName,
+      // 後方互換: 旧クライアントが参照する可能性のあるキーを並行保存（移行完了後に削除予定）
       'item': item,
-      'name': requesterName,
+      'userName': requesterName,
       'location': location,
       'timestamp': Timestamp.fromDate(timestamp),
       'status': status,
       'priority': priority,
       'deliveryPersonId': deliveryPersonId,
       'phone': phone,
+      if (shelterId != null) 'shelterId': shelterId,
     };
   }
 
@@ -60,6 +70,7 @@ class DeliveryRequest {
   DeliveryRequest copyWith({
     String? status,
     String? deliveryPersonId,
+    String? shelterId,
   }) {
     return DeliveryRequest(
       id: id,
@@ -71,6 +82,7 @@ class DeliveryRequest {
       priority: priority,
       deliveryPersonId: deliveryPersonId ?? this.deliveryPersonId,
       phone: phone,
+      shelterId: shelterId ?? this.shelterId,
     );
   }
 

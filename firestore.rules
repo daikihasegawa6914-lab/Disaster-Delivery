@@ -1,0 +1,195 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // 🛡️ 入力値検証関数（無料で実装できるセキュリティ強化）
+    function isValidString(str, maxLength) {
+      return str is string && 
+             str.size() > 0 && 
+             str.size() <= maxLength &&
+             !str.matches('.*[<>"%;()&+].*');
+    }
+    
+    function isValidEmail(email) {
+      return email is string && 
+             email.matches('.*@.*\\..*') &&
+             email.size() <= 100;
+    }
+    
+    function isValidPhoneNumber(phone) {
+      return phone is string && 
+             phone.matches('^[0-9+\\-]{10,15}$');
+    }
+    
+    function isValidPriority(priority) {
+      return priority is int && 
+             priority >= 1 && 
+             priority <= 4;
+    }
+
+    // 追加: 文字列 priority を一時的に許可 (high / medium / low)
+    function isValidPriorityString(p) {
+      return p is string && ['high','medium','low'].hasAny([p]);
+    }
+    
+    function isValidCoordinates(lat, lng) {
+      return lat is number && lng is number &&
+             lat >= 35.0 && lat <= 36.0 &&
+             lng >= 139.0 && lng <= 140.5;
+    }
+    
+    // 📦 配達依頼コレクション（requests - 既存データと互換性維持）
+    match /requests/{requestId} {
+      // 🔍 読み取り：誰でも読み取り可能
+      allow read: if true;
+      
+      // ✍️ 作成：認証済みユーザーが作成でき、作成者のUIDがcreatorUidに設定されていることを検証
+  // デモ / 連携テスト用に必須項目を一時緩和:
+  // address, requesterPhone, isUrgent を任意化 (本番復帰時は再度 hasAll に戻す)
+      allow create: if 
+        request.auth != null &&
+        request.auth.uid == request.resource.data.creatorUid &&
+        // 最小限必須 (requesterName, itemName, priority, timestamp, creatorUid)
+        request.resource.data.keys().hasAll([
+          'requesterName', 'itemName', 'priority', 'timestamp', 'creatorUid'
+        ]) &&
+        isValidString(request.resource.data.requesterName, 50) &&
+        isValidString(request.resource.data.itemName, 100) &&
+        (
+          isValidPriority(request.resource.data.priority) ||
+          isValidPriorityString(request.resource.data.priority)
+        ) &&
+        request.resource.data.timestamp is timestamp;
+      
+      // 📝 更新：割り当てられた配達員または作成者のみ更新可能
+      // update ルール拡張: 初回引き受け(claim)を許可
+      // 条件 A: 作成者本人
+      // 条件 B: 既に担当として設定済みの配達員 (deliveryPersonId == 自分)
+      // 条件 C: まだ誰も担当しておらず(status==waiting かつ deliveryPersonId 未設定/ null) の状態で
+      //          自分のUIDを deliveryPersonId に設定し status を assigned/delivering に変更しようとしている初回claim
+      allow update: if 
+        request.auth != null &&
+        (
+          // A
+          resource.data.creatorUid == request.auth.uid ||
+          // B
+          resource.data.deliveryPersonId == request.auth.uid ||
+          // C (初回claim)
+          (
+            // まだ担当者が設定されていない (deliveryPersonId 無し or null)
+            (!('deliveryPersonId' in resource.data) || resource.data.deliveryPersonId == null) &&
+            resource.data.status == 'waiting' &&
+            // 新しいデータでは自分を設定し waiting -> assigned へ変更しようとしている
+            request.resource.data.deliveryPersonId == request.auth.uid &&
+            request.resource.data.status in ['assigned','delivering']
+          )
+        ) &&
+        request.resource.data.updatedAt is timestamp; // 更新時に updatedAt が必須
+      
+      // 🗑️ 削除：禁止（災害時のデータ保全）
+      allow delete: if false;
+    }
+
+    // 👤 配達員プロフィールコレクション（delivery_persons）
+    match /delivery_persons/{personId} {
+      // 🔍 読み取り：認証済みユーザーが自分自身のドキュメントのみ読み取り可能
+      allow read: if request.auth != null && request.auth.uid == personId;
+      
+      // ✍️ 作成：認証済みユーザーが自身のプロフィールを作成できる。ドキュメントIDとuidフィールドが認証済みユーザーのUIDと一致することを確認。
+      allow create: if 
+        request.auth != null && // 認証済みユーザーであること
+        personId == request.auth.uid && // ドキュメントIDがユーザーのUIDと一致すること
+        request.resource.data.uid == request.auth.uid && // ドキュメント内のuidフィールドがユーザーのUIDと一致すること
+        request.resource.data.keys().hasAll([
+          'uid', 'name', 'vehicleType', 'isActive', 'createdAt'
+        ]) &&
+        isValidString(request.resource.data.name, 50) &&
+        isValidString(request.resource.data.vehicleType, 20) &&
+        request.resource.data.isActive is bool &&
+        request.resource.data.createdAt is timestamp;
+      
+      // 📝 更新：認証済みユーザーが自分自身のドキュメントのみ更新可能
+      allow update: if 
+        request.auth != null && // 認証済みユーザーであること
+        request.auth.uid == personId; // ユーザーが自分自身のドキュメントを更新していること
+      
+      // 🗑️ 削除：禁止（テストユーザーの例外は削除し、よりセキュアに）
+      allow delete: if false;
+    }
+    
+    // 🚚 配達コレクション（deliveries） - 変更なし
+    match /deliveries/{deliveryId} {
+      // 🔍 読み取り：基本的に公開
+      allow read: if true;
+      
+      // ✍️ 作成：配達完了時のレコード作成
+      allow create: if 
+        request.resource.data.keys().hasAll([
+          'requestId', 'deliveryPersonId', 'completedAt'
+        ]) &&
+        isValidString(request.resource.data.requestId, 50) &&
+        isValidString(request.resource.data.deliveryPersonId, 50) &&
+        request.resource.data.completedAt is timestamp;
+      
+      // 📝 更新：作成者のみ
+      allow update: if 
+        request.auth != null && 
+        request.auth.uid == resource.data.deliveryPersonId;
+      
+      // 🗑️ 削除：開発環境のみ
+      allow delete: if 
+        request.resource.data.get('isTestDelivery', false) == true;
+    }
+
+    // 🏠 避難所コレクション（shelters）
+    match /shelters/{shelterId} {
+      // 🔍 読み取り：誰でも読み取り可能
+      allow read: if true;
+
+      // ✍️ 一時的シード用: 指定UIDのみ create を許可（ハッカソン後削除予定）
+      allow create: if request.auth != null &&
+        request.auth.uid == 'PiOkqKfGXDPfqzLnm7WTI8Abvcl2' &&
+        request.resource.data.keys().hasAll(['name','location','status']) &&
+        request.resource.data.status in ['open','full','closed'];
+      // 更新は禁止。削除は空 address かつ facilities 空配列などシード判定に一致し、かつ同一UIDのみ許可
+      allow update: if false;
+      allow delete: if request.auth != null &&
+        request.auth.uid == 'PiOkqKfGXDPfqzLnm7WTI8Abvcl2' &&
+        resource.data.address == '' &&
+        resource.data.currentOccupancy == 0 &&
+        resource.data.capacity == 300 &&
+        resource.data.facilities.size() == 0;
+    }
+    
+    // 📍 避難所情報コレクション（ShelterInfo） - 変更なし
+    match /shelter_info/{shelterId} {
+      // 🔍 読み取り：全員に公開（災害時の重要情報）
+      allow read: if true;
+      
+      // ✍️ 作成/更新：管理者のみ（将来の認証実装時）
+      allow write: if false; // 現在は無効
+    }
+    
+    // 📊 アプリ使用状況（Analytics - 無料範囲内） - 変更なし
+    match /app_usage/{day} {
+      // 🔍 読み取り：禁止
+      allow read: if false;
+      
+      // ✍️ 作成/更新：基本的な使用統計のみ
+      allow write: if 
+        request.resource.data.keys().hasOnly([
+          'date', 'requestCount', 'deliveryCount'
+        ]) &&
+        request.resource.data.requestCount is int &&
+        request.resource.data.deliveryCount is int &&
+        request.resource.data.requestCount <= 1000 &&
+        request.resource.data.deliveryCount <= 1000;
+    }
+    
+    // 🚫 その他のコレクションは全て拒否
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

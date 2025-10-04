@@ -162,7 +162,26 @@ class FirebaseService {
     );
   }
 
-  // 📊 配達統計を記録（任意）
+  // � 再利用: completed -> waiting (管理者UI 専用。deliveryPersonId を除去 / reopenCount 増分)
+  static Future<bool> reopenRequest(String requestId, String adminUid) async {
+    // ここでは adminUid の検証は Firestore ルール側(E条件)に委譲。アプリ側では最小限のトランザクションのみ。
+    return _txnUpdateRequest(
+      requestId: requestId,
+      precondition: (cur) => cur['status'] == RequestStatus.completed,
+      buildUpdate: (cur) {
+        final currentCount = (cur['reopenCount'] is int) ? cur['reopenCount'] as int : 0;
+        return {
+          'status': RequestStatus.waiting,
+          'deliveryPersonId': null,
+          'reopenedAt': FieldValue.serverTimestamp(),
+          'reopenCount': currentCount + 1,
+          // completedTime は履歴保持のため残す（過去完了時刻の参照用途）
+        };
+      },
+    );
+  }
+
+  // �📊 配達統計を記録（任意）
   static Future<void> recordDeliveryStats(String requestId, String deliveryPersonId) async {
     await _firestore.collection(deliveriesCollection).add({
       'requestId': requestId,

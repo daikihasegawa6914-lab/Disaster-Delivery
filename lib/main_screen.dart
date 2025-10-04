@@ -142,7 +142,7 @@ class _MainScreenState extends State<MainScreen> {
       context: context,
       builder: (c) => AlertDialog(
         title: const Text('ログアウト'),
-        content: const Text('ログアウトすると再度ログインが必要です。続行しますか？'),
+        content: const Text('ログアウトすると再度ログインが必要です。メールアドレスとパスワードを登録しない場合、ログインはできません。続行しますか？'),
         actions: [
           TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('キャンセル')),
           ElevatedButton(onPressed: () => Navigator.pop(c, true), child: const Text('ログアウト')),

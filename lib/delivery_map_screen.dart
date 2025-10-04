@@ -320,39 +320,30 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
 
   // 旧: リクエストごとマーカー -> 新: グループ代表マーカー
   Marker _markerForGroup(DeliveryRequest representative, List<DeliveryRequest> group) {
-    // ユーザー指定の簡略ルール:
-    // 1) waiting が1件でもあれば赤
-    // 2) (waiting なし) かつ assigned が1件でもあれば青
-    // 3) (waiting なし & assigned なし) で delivering のみならオレンジ
-    // completed はそもそもグループに含めない（呼び出し元で除外済）
-    bool anyWaiting = false;
-    bool anyAssigned = false;
-    bool anyDelivering = false;
-    for (final g in group) {
-      if (g.status == RequestStatus.waiting) { anyWaiting = true; break; }
-    }
-    if (!anyWaiting) {
-      for (final g in group) {
-        if (g.status == RequestStatus.assigned) { anyAssigned = true; break; }
+    // 要件: waiting が1件でもあれば赤。それ以外で "全件 delivering" ならオレンジ。それでもなければ(= assigned を最低1件含む) 青。
+    // completed は除外対象なので考慮不要（呼び出し元でフィルタされている想定）。
+  bool hasWaiting = false;
+  bool allDelivering = true; // 全件 delivering であることを仮定し、違反があれば false
+    for (final r in group) {
+      final st = r.status;
+      if (st == RequestStatus.waiting) {
+        hasWaiting = true;
+        break; // 最優先決定
       }
-      if (!anyAssigned) {
-        for (final g in group) {
-          if (g.status == RequestStatus.delivering) { anyDelivering = true; break; }
-        }
+      if (st != RequestStatus.delivering) {
+        allDelivering = false; // assigned を含む
       }
+      // assigned は allDelivering=false 判定で既に識別できるので個別フラグ不要
     }
     BitmapDescriptor icon;
-    if (anyWaiting) {
+    if (hasWaiting) {
       icon = _iconWaiting ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
-    } else if (anyAssigned) {
-      icon = _iconAssignedOthers ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue); // assigned 混在（自他不問）
-    } else if (anyDelivering) {
+    } else if (allDelivering && group.isNotEmpty) {
       icon = _iconDelivering ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
     } else {
-      // ここに来るケース: group が空は理論上無し。全て completed は呼び出し元で除外されている。
-      icon = _iconWaiting ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
+      // assigned を含む (あるいは混在: assigned + delivering)
+      icon = _iconAssignedOthers ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
     }
-
     final pos = LatLng(representative.location.latitude, representative.location.longitude);
     final multiple = group.length > 1;
     return Marker(
@@ -646,6 +637,45 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
                     },
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),
                   ),
+                ),
+              // 管理者のみ: completed -> waiting 再利用ボタン (現状 completed はマップに出さないが将来表示に備え簡素に追加)
+              if (r.status == RequestStatus.completed)
+                FutureBuilder<String?>(
+                  future: SharedPreferences.getInstance().then((p) => p.getString('delivery_person_id')),
+                  builder: (context, snap) {
+                    final uid = snap.data;
+                    final isAdmin = uid != null && AdminConfig.adminUids.contains(uid);
+                    if (!isAdmin) return const SizedBox.shrink();
+                    return SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('♻️ 再利用 (waitingへ)'),
+                        onPressed: _sheetActionRunning ? null : () async {
+                          if (_sheetActionRunning) return;
+                          setState(() => _sheetActionRunning = true);
+                          final rootContext = this.context;
+                          try {
+                            final ok = await FirebaseService.reopenRequest(r.id, uid);
+                            if (!mounted) return;
+                            if (ok) {
+                              ScaffoldMessenger.of(rootContext).showSnackBar(const SnackBar(content: Text('再利用しました')));
+                              _safeCloseSheet(context);
+                            } else {
+                              ScaffoldMessenger.of(rootContext).showSnackBar(const SnackBar(content: Text('再利用失敗 (状態競合)')));
+                            }
+                          } catch (e) {
+                            if (mounted) {
+                              ScaffoldMessenger.of(rootContext).showSnackBar(SnackBar(content: Text('失敗: $e')));
+                            }
+                          } finally {
+                            if (mounted) setState(() => _sheetActionRunning = false);
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.purple, foregroundColor: Colors.white),
+                      ),
+                    );
+                  },
                 ),
               const SizedBox(height: 8),
               SizedBox(

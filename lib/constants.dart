@@ -27,3 +27,10 @@ class FirestoreFields {
   static const String requesterName = 'requesterName';
   static const String shelterId = 'shelterId';
 }
+
+/// 管理者 UID 一覧（最小実装: ハードコード）
+class AdminConfig {
+  static const Set<String> adminUids = {
+    'PiOkqKfGXDPfqzLnm7WTI8Abvcl2', // 初期管理者
+  };
+}

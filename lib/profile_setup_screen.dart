@@ -214,8 +214,10 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                '※ メールとパスワードを設定すると別端末でも同じ配達員として利用できます。',
-                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+                '※ メールとパスワードを設定すると別端末でも同じ配達員として利用できます。\n'
+                // 👶 注意文を赤文字で表示
+                '※ 未設定のままログアウトすると再ログインできません（端末内のみ有効な匿名アカウントになります）',
+                style: TextStyle(fontSize: 12, height: 1.3, color: Colors.red),
               ),
             ),
             const SizedBox(height: 20),

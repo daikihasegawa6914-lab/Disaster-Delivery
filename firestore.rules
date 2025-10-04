@@ -38,6 +38,18 @@ service cloud.firestore {
              lat >= 35.0 && lat <= 36.0 &&
              lng >= 139.0 && lng <= 140.5;
     }
+
+    // 🔒 状態遷移妥当性 (rules 言語は if 文不可なので単一式で返す)
+    function isValidRequestTransition() {
+      let s = request.resource.data.status;
+      let hasDP = 'deliveryPersonId' in request.resource.data;
+      let dp = request.resource.data.deliveryPersonId;
+      return (
+        (s == 'waiting' && (!hasDP || dp == null)) ||
+        (['assigned','delivering'].hasAny([s]) && hasDP && dp is string && dp.size() > 3) ||
+        (s == 'completed')
+      );
+    }
     
     // 📦 配達依頼コレクション（requests - 既存データと互換性維持）
     match /requests/{requestId} {
@@ -88,9 +100,18 @@ service cloud.firestore {
             resource.data.deliveryPersonId == request.auth.uid &&
             request.resource.data.status == 'waiting' &&
             (!('deliveryPersonId' in request.resource.data) || request.resource.data.deliveryPersonId == null)
+          ) ||
+          // E: 再利用 (completed -> waiting) 管理者UIDのみ許可。deliveryPersonId を null / 未設定に戻す。
+          (
+            resource.data.status == 'completed' &&
+            request.resource.data.status == 'waiting' &&
+            (!('deliveryPersonId' in request.resource.data) || request.resource.data.deliveryPersonId == null) &&
+            // 管理者UID一覧（簡素性重視でハードコード）
+            ['PiOkqKfGXDPfqzLnm7WTI8Abvcl2'].hasAny([request.auth.uid])
           )
         ) &&
-        request.resource.data.updatedAt is timestamp; // 更新時に updatedAt が必須
+        request.resource.data.updatedAt is timestamp && // 更新時に updatedAt が必須
+        isValidRequestTransition(); // 新旧整合性追加検証
       
       // 🗑️ 削除：禁止（災害時のデータ保全）
       allow delete: if false;

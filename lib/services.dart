@@ -18,7 +18,9 @@ class FirebaseService {
   static Stream<List<DeliveryRequest>> getWaitingRequests() {
     return _firestore
         .collection(requestsCollection)
-  .where('status', isEqualTo: RequestStatus.waiting)
+    // 一部ドキュメントで status が誤って 'wating' と保存されているケースを暫定吸収
+    // 運用ではデータクレンジング後に whereIn -> isEqualTo へ戻す想定
+    .where('status', whereIn: [RequestStatus.waiting, 'wating'])
         // orderBy を一時的に削除してインデックスエラーを回避
         .snapshots()
         .map((snapshot) => snapshot.docs
@@ -127,7 +129,8 @@ class FirebaseService {
   static Stream<List<DeliveryRequest>> getEmergencyRequests() {
     return _firestore
         .collection(requestsCollection)
-  .where('status', isEqualTo: RequestStatus.waiting)
+    // 緊急判定でも 'wating' タイポを吸収
+    .where('status', whereIn: [RequestStatus.waiting, 'wating'])
   .where('priority', isEqualTo: RequestPriority.high)
         // .orderBy('timestamp', descending: false) // 一時的にコメントアウト
         .snapshots()

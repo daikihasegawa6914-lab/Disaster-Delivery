@@ -11,10 +11,7 @@ class ShelterListScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text('🏥 避難所一覧')), // 単独利用時の保険（タブ内では重複しないように AppBar は隠す設計も可）
-      body: _ShelterListBody(onShelterSelected: onShelterSelected),
-    );
+    return _ShelterListBody(onShelterSelected: onShelterSelected);
   }
 }
 
@@ -126,7 +123,15 @@ class _ShelterListBodyState extends State<_ShelterListBody> {
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                         child: InkWell(
                           borderRadius: BorderRadius.circular(12),
-                          onTap: widget.onShelterSelected == null ? null : () => widget.onShelterSelected!(s),
+                          onTap: () {
+                            final related = waiting.where((r) => r.shelterId == s.id).toList();
+                            if (related.length <= 1) {
+                              // 1件以下なら直接マップへジャンプ
+                              if (widget.onShelterSelected != null) widget.onShelterSelected!(s);
+                            } else {
+                              _openShelterRequestsSheet(s, waiting);
+                            }
+                          },
                           child: Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                             child: Row(
@@ -170,6 +175,69 @@ class _ShelterListBodyState extends State<_ShelterListBody> {
               ],
             );
           },
+        );
+      },
+    );
+  }
+
+  // 避難所タップ時: その避難所に紐づく waiting リクエスト一覧を最小UIで表示
+  void _openShelterRequestsSheet(Shelter shelter, List<DeliveryRequest> allWaiting) {
+    final list = allWaiting.where((r) => r.shelterId == shelter.id).toList();
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (c) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: Text('${shelter.name} の要請', style: const TextStyle(fontWeight: FontWeight.bold))),
+                    if (widget.onShelterSelected != null)
+                      TextButton(
+                        onPressed: () {
+                          Navigator.pop(c);
+                          widget.onShelterSelected!(shelter); // マップへジャンプ
+                        },
+                        child: const Text('マップで見る'),
+                      ),
+                  ],
+                ),
+                if (list.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 24),
+                    child: Text('この避難所宛ての待機中要請はありません'),
+                  )
+                else
+                  Flexible(
+                    child: ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: list.length,
+                      separatorBuilder: (_, __) => const Divider(height: 1),
+                      itemBuilder: (context, i) {
+                        final r = list[i];
+                        return ListTile(
+                          dense: true,
+                          title: Text(r.item),
+                          subtitle: Text('優先度: ${r.priority} / 状態: ${r.statusIcon}'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () {
+                            // ここでは詳細画面は増やさずマップジャンプのみ (最小変更)
+                            Navigator.pop(context);
+                            if (widget.onShelterSelected != null) {
+                              widget.onShelterSelected!(shelter);
+                            }
+                          },
+                        );
+                      },
+                    ),
+                  ),
+              ],
+            ),
+          ),
         );
       },
     );

@@ -113,11 +113,14 @@ service cloud.firestore {
         isValidString(request.resource.data.vehicleType, 20) &&
         request.resource.data.isActive is bool &&
         request.resource.data.createdAt is timestamp;
+        // lastActiveAt / updatedAt は任意追加フィールドとして許可 (存在する場合 timestamp)
+        // ルール言語はオプショナル検証が冗長になるため update で強制する
       
       // 📝 更新：認証済みユーザーが自分自身のドキュメントのみ更新可能
       allow update: if 
-        request.auth != null && // 認証済みユーザーであること
-        request.auth.uid == personId; // ユーザーが自分自身のドキュメントを更新していること
+        request.auth != null &&
+        request.auth.uid == personId &&
+        request.resource.data.updatedAt is timestamp; // 更新時は updatedAt 必須
       
       // 🗑️ 削除：禁止（テストユーザーの例外は削除し、よりセキュアに）
       allow delete: if false;

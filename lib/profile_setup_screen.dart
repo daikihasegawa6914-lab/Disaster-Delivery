@@ -23,6 +23,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   
   final TextEditingController _nameController = TextEditingController();
   final TextEditingController _vehicleController = TextEditingController();
+  final TextEditingController _emailController = TextEditingController();
+  final TextEditingController _passwordController = TextEditingController();
   
   File? _profileImage;
   String? _profileImageUrl;
@@ -52,6 +54,48 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.center,
           children: [
+            // 既存アカウントログイン CTA カード
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(16),
+              margin: const EdgeInsets.only(bottom: 20),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(colors: [Colors.indigo.shade600, Colors.blue.shade400]),
+                borderRadius: BorderRadius.circular(16),
+                boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0,3))],
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: const [
+                      Icon(Icons.login, color: Colors.white),
+                      SizedBox(width: 8),
+                      Expanded(
+                        child: Text('既にメール登録済みの方はこちら', style: TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  const Text('過去にプロフィールを作成済みなら再入力不要でログインできます。', style: TextStyle(color: Colors.white70, fontSize: 12)),
+                  const SizedBox(height: 12),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 44,
+                    child: OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: Colors.white70),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                      icon: const Icon(Icons.arrow_forward),
+                      label: const Text('🔐 ログインへ進む'),
+                      onPressed: () => Navigator.of(context).pushReplacementNamed('/login'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
             // � 新規登録説明
             Container(
               padding: const EdgeInsets.all(16),
@@ -140,6 +184,41 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
               ),
             ),
             const SizedBox(height: 32),
+
+            // 📨 アカウント永続化 (任意)
+            TextFormField(
+              controller: _emailController,
+              decoration: InputDecoration(
+                labelText: '📨 メールアドレス（任意）',
+                hintText: 'example@domain.jp',
+                prefixIcon: const Icon(Icons.email),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                filled: true,
+                fillColor: Colors.white,
+              ),
+              keyboardType: TextInputType.emailAddress,
+            ),
+            const SizedBox(height: 16),
+            TextFormField(
+              controller: _passwordController,
+              obscureText: true,
+              decoration: InputDecoration(
+                labelText: '🔐 パスワード（任意 / 8文字以上）',
+                prefixIcon: const Icon(Icons.lock),
+                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                filled: true,
+                fillColor: Colors.white,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                '※ メールとパスワードを設定すると別端末でも同じ配達員として利用できます。',
+                style: TextStyle(fontSize: 12, color: Colors.grey.shade700),
+              ),
+            ),
+            const SizedBox(height: 20),
 
             // 👤 配達員名入力（必須）
             TextFormField(
@@ -381,6 +460,25 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         }
       }
 
+      // メール/パスワード任意リンク
+      final email = _emailController.text.trim();
+      final pass = _passwordController.text.trim();
+      if (email.isNotEmpty || pass.isNotEmpty) {
+        if (email.isEmpty || pass.length < 8) {
+          _showSnackBar('❌ メールは必須・パスワードは8文字以上で入力');
+          setState(() => _isLoading = false);
+          return;
+        }
+        try {
+          final cred = EmailAuthProvider.credential(email: email, password: pass);
+          await user!.linkWithCredential(cred);
+          debugPrint('[PROFILE][AUTH] email linked');
+        } catch (e) {
+          debugPrint('[PROFILE][AUTH][WARN] link failed: $e');
+          _showSnackBar('⚠️ メール連携失敗 (後で再設定可)');
+        }
+      }
+
       // 💾 Firestoreにプロフィール保存
       final uid = FirebaseAuth.instance.currentUser!.uid;
       debugPrint('[PROFILE] writing doc uid=$uid');
@@ -392,6 +490,9 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
         'profileImageUrl': imageUrl,
         'createdAt': FieldValue.serverTimestamp(),
         'isActive': true,
+        'lastActiveAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+        if (email.isNotEmpty) 'email': email,
         // rating / deliveryCount など評価系はルール必須外のため一旦省略
       });
 
@@ -437,6 +538,8 @@ class _ProfileSetupScreenState extends State<ProfileSetupScreen> {
   void dispose() {
     _nameController.dispose();
     _vehicleController.dispose();
+    _emailController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 }

@@ -8,7 +8,11 @@ import 'security/optimized_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'main_screen.dart';
 import 'profile_setup_screen.dart';
+import 'profile_edit_screen.dart';
+import 'login_screen.dart';
+import 'license_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 void main() async {
   // 👶 簡単に言うと：「アプリを始める前の準備」
@@ -47,6 +51,20 @@ void main() async {
   // � 匿名認証を必ず確立（Firestoreルール: request.auth != null 対応）
   await _ensureAnonymousAuth();
   debugPrint('[BOOT] Anonymous auth uid=${FirebaseAuth.instance.currentUser?.uid}');
+  // 起動時 lastActiveAt をタッチ (プロフィールが既に存在する場合のみ)
+  try {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final doc = await FirebaseFirestore.instance.collection('delivery_persons').doc(uid).get();
+    if (doc.exists) {
+      await FirebaseFirestore.instance.collection('delivery_persons').doc(uid).update({
+        'lastActiveAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      debugPrint('[BOOT] lastActiveAt touched');
+    }
+  } catch (e) {
+    debugPrint('[BOOT][WARN] lastActiveAt touch failed: $e');
+  }
   
   // 配達員用アプリを起動
   runApp(const DeliveryApp());
@@ -80,6 +98,9 @@ class DeliveryApp extends StatelessWidget {
       routes: {
         '/main': (context) => const MainScreen(),
         '/profile_setup': (context) => const ProfileSetupScreen(),
+        '/profile_edit': (context) => const ProfileEditScreen(),
+        '/login': (context) => const LoginScreen(),
+        '/license': (context) => const LicenseScreen(),
       },
       debugShowCheckedModeBanner: false,
     );

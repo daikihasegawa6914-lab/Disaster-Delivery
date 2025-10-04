@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+// import 'dart:math' as Math; // 扇状オフセット利用を廃止
 import 'dart:async';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:google_maps_flutter/google_maps_flutter.dart';
@@ -25,7 +26,6 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
   BitmapDescriptor? _iconAssignedMine;
   BitmapDescriptor? _iconAssignedOthers;
   BitmapDescriptor? _iconDelivering;
-  BitmapDescriptor? _iconCompleted;
   bool _openingSheet = false; // 連続タップガード
 
   @override
@@ -72,7 +72,6 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
     // 他人担当 assigned: 薄青 (標準 blue)
     _iconAssignedOthers = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
     _iconDelivering = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
-    _iconCompleted = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
   }
 
   @override
@@ -109,15 +108,7 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('🚚 配達マップ'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.my_location),
-            onPressed: _moveToCurrentLocation,
-          ),
-        ],
-      ),
+      // AppBar は MainScreen のオーバーレイ共通バーに移行
       body: _buildMapWithRequests(),
       floatingActionButton: FloatingActionButton(
         onPressed: () => setState(() => _currentView = _currentView == 'emergency' ? 'all' : 'emergency'),
@@ -126,6 +117,8 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
       ),
     );
   }
+
+  // ログアウト機能は MainScreen 側に集約
 
   Widget _buildMapWithRequests() {
     final Stream<List<DeliveryRequest>> waitingStream = _currentView == 'emergency'
@@ -165,12 +158,37 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
 
   Widget _buildMapStack(List<DeliveryRequest> waiting, List<DeliveryRequest> mine) {
     // mine と waiting を統合（重複なし）
-    final all = <DeliveryRequest>[]..addAll(waiting);
-    final waitingIds = waiting.map((e) => e.id).toSet();
-    for (final m in mine) {
-      if (!waitingIds.contains(m.id)) all.add(m);
+    final merged = <DeliveryRequest>[]..addAll(waiting);
+    final wIds = waiting.map((e) => e.id).toSet();
+    for (final m in mine) { if (!wIds.contains(m.id)) merged.add(m); }
+
+    // ==== 単一マーカー方針 ====
+    // 1) shelterId があるものは shelterId ごとにグルーピング
+    // 2) shelterId が無いものは 以前通り座標キーでグルーピング (完全一致)
+    // 3) 各グループの代表: 緊急(high) > delivering > assigned > waiting の優先度 / 状態簡易順位で選択
+    final Map<String, List<DeliveryRequest>> groups = {};
+    for (final r in merged) {
+      if (r.status == RequestStatus.completed) continue; // 完了はマップ非表示
+      final key = r.shelterId != null && r.shelterId!.isNotEmpty
+          ? 'S:${r.shelterId}'
+          : 'L:${r.location.latitude.toStringAsFixed(6)}_${r.location.longitude.toStringAsFixed(6)}';
+      groups.putIfAbsent(key, () => []).add(r);
     }
-    final markers = all.map(_markerFromRequest).toSet();
+
+    int _stateRank(DeliveryRequest r) {
+      if (r.priority == RequestPriority.high) return 0; // 最優先
+      if (r.status == RequestStatus.delivering) return 1;
+      if (r.status == RequestStatus.assigned) return 2;
+      return 3; // waiting
+    }
+
+    final Set<Marker> markers = {};
+    for (final entry in groups.entries) {
+      final list = entry.value;
+      list.sort((a,b) => _stateRank(a).compareTo(_stateRank(b))); // 代表要素先頭
+      final representative = list.first;
+      markers.add(_markerForGroup(representative, list));
+    }
 
     final map = GoogleMap(
       onMapCreated: (c) {
@@ -186,6 +204,16 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
       ),
       mapToolbarEnabled: false, // 右下の経路/Googleマップショートカットを無効化
       markers: markers,
+      circles: _currentView == 'emergency'
+          ? {}
+          : waiting.where((r) => r.priority == RequestPriority.high).map((r) => Circle(
+                circleId: CircleId('em_${r.id}'),
+                center: LatLng(r.location.latitude, r.location.longitude),
+                radius: 120, // メートル
+                strokeColor: Colors.redAccent.withOpacity(0.55),
+                strokeWidth: 1,
+                fillColor: Colors.redAccent.withOpacity(0.18),
+              )).toSet(),
     );
 
     final waitingCount = waiting.length;
@@ -267,13 +295,13 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
     );
   }
 
-  Marker _markerFromRequest(DeliveryRequest r) {
+  // 旧: リクエストごとマーカー -> 新: グループ代表マーカー
+  Marker _markerForGroup(DeliveryRequest representative, List<DeliveryRequest> group) {
     // 状態 + 所有者でアイコン分岐
     BitmapDescriptor icon;
+    final r = representative;
     if (r.status == RequestStatus.waiting) {
       icon = _iconWaiting ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
-    } else if (r.status == RequestStatus.completed) {
-      icon = _iconCompleted ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
     } else if (r.status == RequestStatus.delivering) {
       icon = _iconDelivering ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
     } else { // assigned
@@ -283,17 +311,75 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
         icon = _iconAssignedOthers ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
       }
     }
-
-
+    final pos = LatLng(r.location.latitude, r.location.longitude);
+    final multiple = group.length > 1;
     return Marker(
-      markerId: MarkerId(r.id),
-      position: LatLng(r.location.latitude, r.location.longitude),
-      // デフォルト InfoWindow を無効化して二度タップ問題を回避（空の InfoWindow を渡す）
+      markerId: MarkerId('grp_${r.id}_${group.length}'),
+      position: pos,
       infoWindow: const InfoWindow(),
       onTap: () {
-        _openRequestDetail(r);
+        if (multiple) {
+          _openGroupedRequestsSheet(group, anchor: pos);
+        } else {
+          _openRequestDetail(r);
+        }
       },
       icon: icon,
+    );
+  }
+
+  void _openGroupedRequestsSheet(List<DeliveryRequest> group, {LatLng? anchor}) {
+    group.sort((a,b) => a.priority.compareTo(b.priority));
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
+      builder: (c) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Row(
+                  children: [
+                    const Icon(Icons.house_siding),
+                    const SizedBox(width: 8),
+                    Expanded(child: Text('この地点の要請 (${group.length}件)', style: const TextStyle(fontWeight: FontWeight.bold))),
+                  ],
+                ),
+                const SizedBox(height: 8),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: group.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (context, i) {
+                      final r = group[i];
+                      return ListTile(
+                        title: Text(r.item),
+                        subtitle: Text('優先度: ${r.priority} / 状態: ${r.statusIcon}'),
+                        leading: Text(r.priorityColor),
+                        onTap: () {
+                          Navigator.pop(context);
+                          _openRequestDetail(r);
+                        },
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  child: OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    child: const Text('閉じる'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 

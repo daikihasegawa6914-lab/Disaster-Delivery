@@ -39,7 +39,12 @@ class DeliveryRequest {
 	requesterName: data['requesterName'] ?? data['userName'] ?? data['name'] ?? '匿名さん',
       location: data['location'] ?? const GeoPoint(35.681236, 139.767125),
       timestamp: (data['timestamp'] as Timestamp?)?.toDate() ?? DateTime.now(),
-  status: data['status'] ?? RequestStatus.waiting,
+  // status タイプミス 'wating' を後方互換で waiting として扱う
+  status: (() {
+    final raw = data['status'];
+    if (raw == 'wating') return RequestStatus.waiting; // 誤記吸収
+    return raw ?? RequestStatus.waiting;
+  })(),
   priority: data['priority'] ?? RequestPriority.medium,
       deliveryPersonId: data['deliveryPersonId'],
       phone: data['phone'],

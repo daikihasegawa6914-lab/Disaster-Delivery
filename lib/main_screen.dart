@@ -5,6 +5,7 @@ import 'shelter_list_screen.dart';
 import 'delivery_progress_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'services.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 // 🏠 メインアプリ画面（配達マップのみ）
 class MainScreen extends StatefulWidget {
@@ -72,6 +73,46 @@ class _MainScreenState extends State<MainScreen> {
         : IndexedStack(index: _currentIndex, children: _pages);
 
     return Scaffold(
+      appBar: AppBar(
+        title: Text(
+          _currentIndex == 0
+              ? '🚚 配達マップ'
+              : _currentIndex == 1
+                  ? '📋 進行中リスト'
+                  : '🏠 避難所一覧',
+        ),
+        backgroundColor: Colors.blue.shade100,
+        foregroundColor: Colors.blue.shade800,
+        elevation: 2,
+        actions: [
+          if (_currentIndex == 0)
+            IconButton(
+              tooltip: '現在地'
+                  ,
+              icon: const Icon(Icons.my_location),
+              onPressed: () => _mapKey.currentState?.moveCameraTo(const LatLng(35.681236, 139.767125), zoom: 14),
+            ),
+          PopupMenuButton<String>(
+            onSelected: (v) async {
+              if (v == 'edit') {
+                final changed = await Navigator.of(context).pushNamed('/profile_edit');
+                if (changed == true && mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('プロフィールを更新しました')));
+                }
+              } else if (v == 'logout') {
+                await _handleLogout();
+              } else if (v == 'license') {
+                if (mounted) Navigator.of(context).pushNamed('/license');
+              }
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'edit', child: Text('🛠️ プロフィール編集')),
+              PopupMenuItem(value: 'license', child: Text('📄 ライセンス / 出典')),
+              PopupMenuItem(value: 'logout', child: Text('🚪 ログアウト')),
+            ],
+          ),
+        ],
+      ),
       body: Stack(
         children: [
           Positioned.fill(child: body),
@@ -94,6 +135,28 @@ class _MainScreenState extends State<MainScreen> {
         ],
       ),
     );
+  }
+
+  Future<void> _handleLogout() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('ログアウト'),
+        content: const Text('ログアウトすると再度ログインが必要です。続行しますか？'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(c, false), child: const Text('キャンセル')),
+          ElevatedButton(onPressed: () => Navigator.pop(c, true), child: const Text('ログアウト')),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('delivery_person_id');
+    await prefs.remove('delivery_person_name');
+    try { await FirebaseAuth.instance.signOut(); } catch (_) {}
+    try { await FirebaseAuth.instance.signInAnonymously(); } catch (_) {}
+    if (!mounted) return;
+    Navigator.of(context).pushNamedAndRemoveUntil('/login', (r) => false);
   }
 }
 

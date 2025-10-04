@@ -233,9 +233,11 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
                 circleId: CircleId('em_${r.id}'),
                 center: LatLng(r.location.latitude, r.location.longitude),
                 radius: 120, // メートル
-                strokeColor: Colors.redAccent.withOpacity(0.55),
+                // ignore: deprecated_member_use
+                strokeColor: Colors.redAccent.withOpacity(0.55), // 警告を抑制
                 strokeWidth: 1,
-                fillColor: Colors.redAccent.withOpacity(0.18),
+                // ignore: deprecated_member_use
+                fillColor: Colors.redAccent.withOpacity(0.18), // 警告を抑制
               )).toSet(),
     );
 

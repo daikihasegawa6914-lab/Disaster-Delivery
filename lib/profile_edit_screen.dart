@@ -151,7 +151,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         // 既にメールあり → 変更 / パス更新
         if (newEmail.isNotEmpty && newEmail != user.email) {
           try {
-            await user.updateEmail(newEmail);
+            await user.verifyBeforeUpdateEmail(newEmail); // 修正: updateEmail → verifyBeforeUpdateEmail
             _showSnack('✅ メールを更新しました');
           } catch (e) {
             _showSnack('⚠️ メール更新失敗: $e');

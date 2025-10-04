@@ -27,6 +27,31 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
   BitmapDescriptor? _iconAssignedOthers;
   BitmapDescriptor? _iconDelivering;
   bool _openingSheet = false; // 連続タップガード
+  bool _sheetActionRunning = false; // ボトムシート内操作の多重防止 & pop 安全化
+  bool _pendingSheetClose = false; // 多重 pop 防止フラグ
+
+  void _safeCloseSheet(BuildContext ctx) {
+    if (_pendingSheetClose) return; // すでに処理予約済み
+    _pendingSheetClose = true;
+    // 2 フレーム遅延: 直前の setState に伴うビルド/アニメーションロック終了を待つ
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) {
+          _pendingSheetClose = false;
+          return;
+        }
+        final nav = Navigator.of(ctx);
+        if (nav.canPop()) {
+          try {
+            nav.pop();
+          } catch (e) {
+            debugPrint('[SHEET][POP][WARN] $e');
+          }
+        }
+        _pendingSheetClose = false;
+      });
+    });
+  }
 
   @override
   void initState() {
@@ -502,22 +527,25 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
                   child: ElevatedButton.icon(
                     icon: const Icon(Icons.handshake),
                     label: const Text('🤝 この配達を引き受ける'),
-                    onPressed: _personId.isEmpty ? null : () async {
-                      final navigator = Navigator.of(context);
-                      // 失敗時のみ視覚通知。成功時は静かに閉じる。
-                      final ok = await FirebaseService.assignDelivery(r.id, _personId);
-                      if (!mounted) return;
-                      if (ok) {
-                        navigator.pop();
-                      } else {
-                        ScaffoldMessenger.of(context)
-                          ..hideCurrentSnackBar()
-                          ..showSnackBar(
-                            const SnackBar(
+                    onPressed: (_personId.isEmpty || _sheetActionRunning) ? null : () async {
+                      if (_sheetActionRunning) return; // 二重防止
+                      setState(() => _sheetActionRunning = true);
+                      final rootContext = this.context; // Snackbar 用にシート外コンテキスト確保
+                      try {
+                        final ok = await FirebaseService.assignDelivery(r.id, _personId);
+                        if (!mounted) return;
+                        if (ok) {
+                          _safeCloseSheet(context);
+                        } else {
+                          ScaffoldMessenger.of(rootContext)
+                            ..hideCurrentSnackBar()
+                            ..showSnackBar(const SnackBar(
                               content: Text('他の配達員が先に取得しました'),
                               duration: Duration(seconds: 2),
-                            ),
-                          );
+                            ));
+                        }
+                      } finally {
+                        if (mounted) setState(() => _sheetActionRunning = false);
                       }
                     },
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),
@@ -531,15 +559,20 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
                       child: ElevatedButton.icon(
                         icon: const Icon(Icons.rocket_launch),
                         label: const Text('🚀 配達開始'),
-                        onPressed: () async {
+                        onPressed: _sheetActionRunning ? null : () async {
+                          if (_sheetActionRunning) return;
+                          setState(() => _sheetActionRunning = true);
+                          final rootContext = this.context;
                           try {
-                            final navigator = Navigator.of(context);
-                            await FirebaseService.startDelivery(r.id, _personId);
+                            final _ = await FirebaseService.startDelivery(r.id, _personId);
                             if (!mounted) return;
-                            navigator.pop();
+                            _safeCloseSheet(context);
                           } catch (e) {
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('失敗: $e')));
+                            if (mounted) {
+                              ScaffoldMessenger.of(rootContext).showSnackBar(SnackBar(content: Text('失敗: $e')));
+                            }
+                          } finally {
+                            if (mounted) setState(() => _sheetActionRunning = false);
                           }
                         },
                         style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
@@ -551,16 +584,22 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
                       child: OutlinedButton.icon(
                         icon: const Icon(Icons.undo),
                         label: const Text('引き受け解除'),
-                        onPressed: () async {
+                        onPressed: _sheetActionRunning ? null : () async {
+                          if (_sheetActionRunning) return;
+                          setState(() => _sheetActionRunning = true);
+                          final rootContext = this.context;
                           try {
-                            final navigator = Navigator.of(context);
                             await FirebaseService.cancelAssignment(r.id, _personId);
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('引き受けを解除しました')));
-                            navigator.pop();
+                            if (mounted) {
+                              ScaffoldMessenger.of(rootContext).showSnackBar(const SnackBar(content: Text('引き受けを解除しました')));
+                            }
+                            if (mounted) _safeCloseSheet(context);
                           } catch (e) {
-                            if (!mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('失敗: $e')));
+                            if (mounted) {
+                              ScaffoldMessenger.of(rootContext).showSnackBar(SnackBar(content: Text('失敗: $e')));
+                            }
+                          } finally {
+                            if (mounted) setState(() => _sheetActionRunning = false);
                           }
                         },
                       ),
@@ -573,15 +612,19 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
                   child: ElevatedButton.icon(
                     icon: const Icon(Icons.check),
                     label: const Text('✅ 配達完了'),
-                    onPressed: () async {
+                    onPressed: _sheetActionRunning ? null : () async {
+                      if (_sheetActionRunning) return;
+                      setState(() => _sheetActionRunning = true);
+                      final rootContext = this.context;
                       try {
-                        final navigator = Navigator.of(context);
                         await FirebaseService.completeDelivery(r.id);
-                        if (!mounted) return;
-                        navigator.pop();
+                        if (mounted) _safeCloseSheet(context);
                       } catch (e) {
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('失敗: $e')));
+                        if (mounted) {
+                          ScaffoldMessenger.of(rootContext).showSnackBar(SnackBar(content: Text('失敗: $e')));
+                        }
+                      } finally {
+                        if (mounted) setState(() => _sheetActionRunning = false);
                       }
                     },
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.green, foregroundColor: Colors.white),

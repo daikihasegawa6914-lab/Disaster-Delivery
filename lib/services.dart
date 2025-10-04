@@ -38,6 +38,29 @@ class FirebaseService {
             .toList());
   }
 
+  // 📊 自分の配達ステータス集計 (assigned, delivering, completed 直近 N など拡張余地あり)
+  static Stream<Map<String, int>> getMyStatusCounts(String deliveryPersonId) {
+    return _firestore
+        .collection(requestsCollection)
+        .where('deliveryPersonId', isEqualTo: deliveryPersonId)
+        .where('status', whereIn: [RequestStatus.assigned, RequestStatus.delivering])
+        .snapshots()
+        .map((snap) {
+          int assigned = 0;
+          int delivering = 0;
+          for (final d in snap.docs) {
+            final data = d.data();
+            final status = data['status'];
+            if (status == RequestStatus.assigned) assigned++;
+            else if (status == RequestStatus.delivering) delivering++;
+          }
+          return {
+            'assigned': assigned,
+            'delivering': delivering,
+          };
+        });
+  }
+
   // � 避難所情報を取得
   static Stream<List<Shelter>> getShelters() {
     return _firestore
@@ -57,6 +80,17 @@ class FirebaseService {
       // 担当者IDを一本化
       'deliveryPersonId': deliveryPersonId,
       'assignedAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+  }
+
+  // ↩️ 引き受け解除 (assigned -> waiting)。配達開始前のみ許可。
+  static Future<void> cancelAssignment(String requestId, String deliveryPersonId) async {
+    await _firestore.collection(requestsCollection).doc(requestId).update({
+      'status': RequestStatus.waiting,
+      'deliveryPersonId': null,
+      'canceledAt': FieldValue.serverTimestamp(),
+      'canceledBy': deliveryPersonId,
       'updatedAt': FieldValue.serverTimestamp(),
     });
   }

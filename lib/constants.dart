@@ -19,4 +19,11 @@ class FirestoreFields {
   static const String priority = 'priority';
   static const String completedAt = 'completedAt';
   static const String assignedAt = 'assignedAt';
+  static const String deliveryPersonId = 'deliveryPersonId';
+  static const String updatedAt = 'updatedAt';
+  static const String creatorUid = 'creatorUid';
+  static const String timestamp = 'timestamp';
+  static const String itemName = 'itemName';
+  static const String requesterName = 'requesterName';
+  static const String shelterId = 'shelterId';
 }

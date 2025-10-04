@@ -20,6 +20,13 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
   String _personId = '';
   List<Shelter> _shelters = [];
   StreamSubscription<List<Shelter>>? _shelterSub;
+  // マーカーアイコンキャッシュ
+  BitmapDescriptor? _iconWaiting;
+  BitmapDescriptor? _iconAssignedMine;
+  BitmapDescriptor? _iconAssignedOthers;
+  BitmapDescriptor? _iconDelivering;
+  BitmapDescriptor? _iconCompleted;
+  bool _openingSheet = false; // 連続タップガード
 
   @override
   void initState() {
@@ -32,23 +39,40 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
     await _mapController!.animateCamera(CameraUpdate.newCameraPosition(CameraPosition(target: latLng, zoom: zoom)));
   }
 
+  // 外部（進行中タブ）から特定リクエストへフォーカスし詳細を開く
+  void focusOnRequest(DeliveryRequest r) {
+    _openRequestDetail(r, fromExternal: true);
+  }
+
   Future<void> _init() async {
     debugPrint('[MAP] init start');
+    await _prepareMarkerIcons();
     // 避難所ストリーム購読（open のみ）
     _shelterSub = ShelterService.getAvailableShelters().listen((data) {
       if (mounted) setState(() => _shelters = data);
     });
-    // 一度だけシード実行（許可ルールがある場合のみ）
-    try {
-      await ShelterService.seedProvidedSheltersIfMissing();
-    } catch (e) {
-      debugPrint('[SEED][WARN] shelter seed failed: $e');
-    }
+    // シード機能は現在無効化（実運用/安定表示のため）
+    // try {
+    //   await ShelterService.seedProvidedSheltersIfMissing();
+    // } catch (e) {
+    //   debugPrint('[SEED][WARN] shelter seed failed: $e');
+    // }
     await _loadPersonId();
     debugPrint('[MAP] personId=$_personId');
     await _moveToCurrentLocation();
     if (mounted) setState(() {});
     debugPrint('[MAP] init done');
+  }
+
+  // 状態別マーカー (簡易: defaultMarkerWithHue + alpha / hue の差 + 自分担当強調色)
+  Future<void> _prepareMarkerIcons() async {
+    _iconWaiting = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
+    // 自分担当 assigned: デフォ青より濃く表示 (hueBlue は 210° 相当 → 200° 近似で強調できないため同色 + later outline は未実装)
+    _iconAssignedMine = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
+    // 他人担当 assigned: 薄青 (標準 blue)
+    _iconAssignedOthers = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
+    _iconDelivering = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+    _iconCompleted = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
   }
 
   @override
@@ -104,92 +128,210 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
   }
 
   Widget _buildMapWithRequests() {
-    final Stream<List<DeliveryRequest>> stream = _currentView == 'emergency'
+    final Stream<List<DeliveryRequest>> waitingStream = _currentView == 'emergency'
         ? FirebaseService.getEmergencyRequests()
         : FirebaseService.getWaitingRequests();
 
+    // まず waiting / emergency を取得し、その後 自分担当中(active) をネストしてマージ
     return StreamBuilder<List<DeliveryRequest>>(
-      stream: stream,
-      builder: (context, snap) {
-        if (snap.connectionState == ConnectionState.waiting) {
+      stream: waitingStream,
+      builder: (context, waitingSnap) {
+        if (waitingSnap.connectionState == ConnectionState.waiting) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (snap.hasError) {
-          debugPrint('[MAP][ERROR] stream: ${snap.error}');
-          return Center(child: Text('❌ ${snap.error}'));
+        if (waitingSnap.hasError) {
+          debugPrint('[MAP][ERROR] waiting: ${waitingSnap.error}');
+          return Center(child: Text('❌ ${waitingSnap.error}'));
         }
-        final requests = snap.data ?? [];
-        debugPrint('[MAP] requests len=${requests.length}');
-        final markers = requests.map(_markerFromRequest).toSet();
-        final map = GoogleMap(
-          onMapCreated: (c) {
-            _mapController = c;
-            debugPrint('[MAP] map created');
+        final waiting = waitingSnap.data ?? [];
+
+        // personId 未取得なら waiting のみ表示
+        if (_personId.isEmpty) {
+          return _buildMapStack(waiting, const []);
+        }
+        return StreamBuilder<List<DeliveryRequest>>(
+          stream: FirebaseService.getMyDeliveries(_personId),
+          builder: (context, mySnap) {
+            if (mySnap.hasError) {
+              debugPrint('[MAP][ERROR] my: ${mySnap.error}');
+            }
+            final mine = mySnap.data ?? [];
+            return _buildMapStack(waiting, mine);
           },
-          myLocationEnabled: true,
-          myLocationButtonEnabled: false, // 重複するデフォルト現在地ボタンを非表示
-          zoomControlsEnabled: false,
-          initialCameraPosition: const CameraPosition(
-            target: LatLng(35.681236, 139.767125),
-            zoom: 12,
-          ),
-          markers: markers,
-        );
-        // 緊急件数バッジ用ストリーム（高優先度 waiting）
-        return Stack(
-          children: [
-            map,
-            Positioned(
-              top: 8,
-              left: 8,
-              child: StreamBuilder<List<DeliveryRequest>>(
-                stream: FirebaseService.getEmergencyRequests(),
-                builder: (context, es) {
-                  final cnt = es.data?.length ?? 0;
-                  if (cnt == 0) return const SizedBox.shrink();
-                  return AnimatedContainer(
-                    duration: const Duration(milliseconds: 250),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: Colors.red.shade700.withOpacity(0.9),
-                      borderRadius: BorderRadius.circular(24),
-                      boxShadow: [BoxShadow(color: Colors.black26, blurRadius: 4)],
-                    ),
-                    child: Text('🆘 緊急: $cnt件', style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
-                  );
-                },
-              ),
-            ),
-          ],
         );
       },
     );
   }
 
+  Widget _buildMapStack(List<DeliveryRequest> waiting, List<DeliveryRequest> mine) {
+    // mine と waiting を統合（重複なし）
+    final all = <DeliveryRequest>[]..addAll(waiting);
+    final waitingIds = waiting.map((e) => e.id).toSet();
+    for (final m in mine) {
+      if (!waitingIds.contains(m.id)) all.add(m);
+    }
+    final markers = all.map(_markerFromRequest).toSet();
+
+    final map = GoogleMap(
+      onMapCreated: (c) {
+        _mapController = c;
+        debugPrint('[MAP] map created');
+      },
+      myLocationEnabled: true,
+      myLocationButtonEnabled: false,
+      zoomControlsEnabled: false,
+      initialCameraPosition: const CameraPosition(
+        target: LatLng(35.681236, 139.767125),
+        zoom: 12,
+      ),
+      mapToolbarEnabled: false, // 右下の経路/Googleマップショートカットを無効化
+      markers: markers,
+    );
+
+    final waitingCount = waiting.length;
+    final assignedCount = mine.where((e) => e.status == RequestStatus.assigned).length;
+    final deliveringCount = mine.where((e) => e.status == RequestStatus.delivering).length;
+
+    return Stack(
+      children: [
+        map,
+        // 緊急バッジ
+        Positioned(
+          top: 8,
+          left: 8,
+          child: StreamBuilder<List<DeliveryRequest>>(
+            stream: FirebaseService.getEmergencyRequests(),
+            builder: (context, es) {
+              final cnt = es.data?.length ?? 0;
+              if (cnt == 0) return const SizedBox.shrink();
+              return _badge('🆘 緊急: $cnt件', Colors.red.shade700);
+            },
+          ),
+        ),
+        // ステータスバー (中央上)
+        Positioned(
+          top: 8,
+          right: 8,
+          child: _statusBar(waitingCount, assignedCount, deliveringCount),
+        ),
+      ],
+    );
+  }
+
+  Widget _statusBar(int waiting, int assigned, int delivering) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: Colors.black87.withOpacity(0.55),
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+      ),
+      child: DefaultTextStyle(
+        style: const TextStyle(color: Colors.white, fontSize: 12),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            _countChip('待機', waiting, Colors.redAccent),
+            const SizedBox(width: 6),
+            _countChip('担当', assigned, Colors.blueAccent),
+            const SizedBox(width: 6),
+            _countChip('配達中', delivering, Colors.orangeAccent),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _countChip(String label, int count, Color color) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(width: 8, height: 8, decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
+        const SizedBox(width: 4),
+        Text('$label:$count'),
+      ],
+    );
+  }
+
+  Widget _badge(String text, Color color) {
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 250),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.9),
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: const [BoxShadow(color: Colors.black26, blurRadius: 4)],
+      ),
+      child: Text(text, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold)),
+    );
+  }
+
   Marker _markerFromRequest(DeliveryRequest r) {
-    // マーカー色: waiting=赤, assigned/delivering=青, completed=緑
-    double hue;
+    // 状態 + 所有者でアイコン分岐
+    BitmapDescriptor icon;
     if (r.status == RequestStatus.waiting) {
-      hue = BitmapDescriptor.hueRed;
+      icon = _iconWaiting ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
     } else if (r.status == RequestStatus.completed) {
-      hue = BitmapDescriptor.hueGreen;
-    } else { // assigned / delivering
-      hue = BitmapDescriptor.hueBlue;
+      icon = _iconCompleted ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueGreen);
+    } else if (r.status == RequestStatus.delivering) {
+      icon = _iconDelivering ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+    } else { // assigned
+      if (r.deliveryPersonId == _personId && _personId.isNotEmpty) {
+        icon = _iconAssignedMine ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
+      } else {
+        icon = _iconAssignedOthers ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
+      }
     }
 
-    final shelter = _findShelterForRequest(r);
-    final snippet = shelter != null ? '🏥 ${shelter.name} / ${r.status}' : r.status;
 
     return Marker(
       markerId: MarkerId(r.id),
       position: LatLng(r.location.latitude, r.location.longitude),
-      infoWindow: InfoWindow(title: '${r.priorityColor} ${r.item}', snippet: snippet),
+      // デフォルト InfoWindow を無効化して二度タップ問題を回避（空の InfoWindow を渡す）
+      infoWindow: const InfoWindow(),
       onTap: () {
-        moveCameraTo(LatLng(r.location.latitude, r.location.longitude), zoom: 17);
-        _showDetail(r);
+        _openRequestDetail(r);
       },
-      icon: BitmapDescriptor.defaultMarkerWithHue(hue),
+      icon: icon,
     );
+  }
+
+  void _openRequestDetail(DeliveryRequest r, {bool fromExternal = false}) async {
+    if (_openingSheet) return; // 連打防止
+    _openingSheet = true;
+
+    try {
+      // 位置が十分近い & ズームが既に高いならカメラアニメ省略
+      final target = LatLng(r.location.latitude, r.location.longitude);
+      bool needMove = true;
+      if (_mapController != null) {
+        final cameraPos = await _mapController!.getVisibleRegion();
+        // 大雑把に対象が現在表示境界の内側なら移動省略
+        if (target.latitude >= cameraPos.southwest.latitude &&
+            target.latitude <= cameraPos.northeast.latitude &&
+            target.longitude >= cameraPos.southwest.longitude &&
+            target.longitude <= cameraPos.northeast.longitude) {
+          needMove = false;
+        }
+      }
+
+      if (needMove) {
+        // 先に軽いハプティックで反応フィードバック
+        // ignore: use_build_context_synchronously
+        // HapticFeedback は platform channel を使うため import services が必要だが最小対応として try-catch で包む
+        try { /* placeholder for future: HapticFeedback.lightImpact(); */ } catch (_) {}
+        await moveCameraTo(target, zoom: 17);
+      }
+
+      if (!mounted) return;
+      _showDetail(r);
+    } finally {
+      // 少し遅延してから解除 (シートアニメーション中の再タップ抑制)
+      Future.delayed(const Duration(milliseconds: 300), () {
+        _openingSheet = false;
+      });
+    }
   }
 
   Shelter? _findShelterForRequest(DeliveryRequest r) {
@@ -278,6 +420,11 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
                       try {
                         final navigator = Navigator.of(context);
                         await FirebaseService.assignDelivery(r.id, _personId);
+                        if (mounted) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(content: Text('配達を引き受けました')),
+                          );
+                        }
                         if (!mounted) return;
                         navigator.pop();
                       } catch (e) {
@@ -289,24 +436,48 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
                   ),
                 )
               else if (r.status == RequestStatus.assigned && r.deliveryPersonId == _personId)
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    icon: const Icon(Icons.rocket_launch),
-                    label: const Text('🚀 配達開始'),
-                    onPressed: () async {
-                      try {
-                        final navigator = Navigator.of(context);
-                        await FirebaseService.startDelivery(r.id, _personId);
-                        if (!mounted) return;
-                        navigator.pop();
-                      } catch (e) {
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('失敗: $e')));
-                      }
-                    },
-                    style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
-                  ),
+                Column(
+                  children: [
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        icon: const Icon(Icons.rocket_launch),
+                        label: const Text('🚀 配達開始'),
+                        onPressed: () async {
+                          try {
+                            final navigator = Navigator.of(context);
+                            await FirebaseService.startDelivery(r.id, _personId);
+                            if (!mounted) return;
+                            navigator.pop();
+                          } catch (e) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('失敗: $e')));
+                          }
+                        },
+                        style: ElevatedButton.styleFrom(backgroundColor: Colors.orange, foregroundColor: Colors.white),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        icon: const Icon(Icons.undo),
+                        label: const Text('引き受け解除'),
+                        onPressed: () async {
+                          try {
+                            final navigator = Navigator.of(context);
+                            await FirebaseService.cancelAssignment(r.id, _personId);
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('引き受けを解除しました')));
+                            navigator.pop();
+                          } catch (e) {
+                            if (!mounted) return;
+                            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('失敗: $e')));
+                          }
+                        },
+                      ),
+                    ),
+                  ],
                 )
               else if (r.status == RequestStatus.delivering)
                 SizedBox(

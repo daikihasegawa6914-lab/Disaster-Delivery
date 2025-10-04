@@ -71,18 +71,23 @@ service cloud.firestore {
       allow update: if 
         request.auth != null &&
         (
-          // A
+          // A: 作成者
           resource.data.creatorUid == request.auth.uid ||
-          // B
+          // B: 既に担当中 (任意変更)
           resource.data.deliveryPersonId == request.auth.uid ||
-          // C (初回claim)
+          // C: 初回claim (waiting -> assigned/delivering)
           (
-            // まだ担当者が設定されていない (deliveryPersonId 無し or null)
             (!('deliveryPersonId' in resource.data) || resource.data.deliveryPersonId == null) &&
             resource.data.status == 'waiting' &&
-            // 新しいデータでは自分を設定し waiting -> assigned へ変更しようとしている
             request.resource.data.deliveryPersonId == request.auth.uid &&
             request.resource.data.status in ['assigned','delivering']
+          ) ||
+          // D: 引き受け解除 (assigned -> waiting かつ 自分が既担当者、deliveryPersonId を null に戻す)
+          (
+            resource.data.status == 'assigned' &&
+            resource.data.deliveryPersonId == request.auth.uid &&
+            request.resource.data.status == 'waiting' &&
+            (!('deliveryPersonId' in request.resource.data) || request.resource.data.deliveryPersonId == null)
           )
         ) &&
         request.resource.data.updatedAt is timestamp; // 更新時に updatedAt が必須

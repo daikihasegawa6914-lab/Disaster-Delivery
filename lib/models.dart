@@ -100,6 +100,7 @@ class DeliveryRequest {
   String get statusIcon {
     switch (status) {
       case RequestStatus.waiting: return '⏳'; // 待機中
+      case RequestStatus.assigned: return '📝'; // 引き受け済み（未出発）
       case RequestStatus.delivering: return '🚚'; // 配達中
       case RequestStatus.completed: return '✅'; // 完了
       default: return '❓';

@@ -1,34 +1,47 @@
-/// アプリ全体で共有する定数定義 (指令2)
-/// 状態や優先度などの文字列を集中管理し、ヒューマンエラーを防止。
+// 👶 このファイルはアプリ全体で使う定数（色・文字列・キーなど）をまとめています。
+// - 変更しやすく、複数画面で使い回せるように設計されています。
+// - 定数を一箇所に集約することで、値の変更や管理が簡単になり、ヒューマンエラーを防止できます。
+// - Firestoreのフィールド名やステータス値もここで定義し、コード全体の統一性を保っています。
+
+/// 👶 RequestStatusクラス: 配達リクエストの状態を表す定数。
+/// - FirestoreやUIで状態管理に使う文字列を一元管理。
+/// - 文字列のスペルミスや値の不統一を防ぐため、必ずこの定数を使うこと。
 class RequestStatus {
-  static const String waiting = 'waiting';
-  static const String assigned = 'assigned';
-  static const String delivering = 'delivering';
-  static const String completed = 'completed';
+  static const String waiting = 'waiting'; // 処理待ち
+  static const String assigned = 'assigned'; // 担当者決定
+  static const String delivering = 'delivering'; // 配達中
+  static const String completed = 'completed'; // 完了
 }
 
+/// 👶 RequestPriorityクラス: 配達リクエストの優先度を表す定数。
+/// - FirestoreやUIで優先度管理に使う文字列を一元管理。
+/// - 優先度によってUIの色分けや表示順序を制御する際にも利用。
 class RequestPriority {
-  static const String high = 'high';
-  static const String medium = 'medium';
-  static const String low = 'low';
+  static const String high = 'high'; // 高
+  static const String medium = 'medium'; // 中
+  static const String low = 'low'; // 低
 }
 
-/// Firestore フィールド名の集中定義 (変更耐性向上)
+/// 👶 FirestoreFieldsクラス: Firestoreのフィールド名を一元管理。
+/// - DB設計変更時もここだけ修正すれば全体に反映される。
+/// - フィールド名のスペルミスや不統一を防ぐため、必ずこの定数を使うこと。
 class FirestoreFields {
-  static const String status = 'status';
-  static const String priority = 'priority';
-  static const String completedAt = 'completedAt';
-  static const String assignedAt = 'assignedAt';
-  static const String deliveryPersonId = 'deliveryPersonId';
-  static const String updatedAt = 'updatedAt';
-  static const String creatorUid = 'creatorUid';
-  static const String timestamp = 'timestamp';
-  static const String itemName = 'itemName';
-  static const String requesterName = 'requesterName';
-  static const String shelterId = 'shelterId';
+  static const String status = 'status'; // ステータス
+  static const String priority = 'priority'; // プライオリティ
+  static const String completedAt = 'completedAt'; // 完了日時
+  static const String assignedAt = 'assignedAt'; // 担当者決定日時
+  static const String deliveryPersonId = 'deliveryPersonId'; // 配達者ID
+  static const String updatedAt = 'updatedAt'; // 更新日時
+  static const String creatorUid = 'creatorUid'; // 作成者UID
+  static const String timestamp = 'timestamp'; // タイムスタンプ
+  static const String itemName = 'itemName'; // アイテム名
+  static const String requesterName = 'requesterName'; // 依頼者名
+  static const String shelterId = 'shelterId'; // シェルターID
 }
 
-/// 管理者 UID 一覧（最小実装: ハードコード）
+/// 👶 AdminConfigクラス: 管理者UIDの一覧を定義。
+/// - 管理者専用機能のアクセス制御に利用。
+/// - 本番運用ではDBや環境変数で管理することも推奨。
 class AdminConfig {
   static const Set<String> adminUids = {
     'PiOkqKfGXDPfqzLnm7WTI8Abvcl2', // 初期管理者

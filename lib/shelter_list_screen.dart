@@ -3,6 +3,15 @@ import 'services.dart';
 import 'models.dart';
 
 /// 🏥 避難所一覧 + その避難所宛て waiting 要請件数表示
+// 👶 このファイルは「避難所一覧画面」のロジックです。
+// - Firestoreから避難所データを取得し、リスト表示します。
+// - 各避難所に紐づく待機中の要請件数を表示します。
+// - 要請件数をタップすると、関連する要請の詳細を表示します。
+// - UIはMaterial Designベースで、カードやリスト表示を活用しています。
+// - StreamBuilderでリアルタイムにデータを監視し、画面を更新します。
+// - 避難所ごとの要請件数は赤色バッジで強調表示されます。
+// - 未割当リクエストも分かりやすく表示されます。
+// - 避難所をタップすると、関連する要請一覧をボトムシートで表示できます。
 class ShelterListScreen extends StatelessWidget {
   const ShelterListScreen({super.key, this.onShelterSelected});
 

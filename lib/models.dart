@@ -2,6 +2,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart'; // Color と Colors のため
 import 'constants.dart';
 
+// 👶 このファイルは「データモデル（配達リクエスト・配達員・避難所）」の設計図です。
+// - Firestoreとのデータ変換やUI表示用のヘルパーも含まれています。
+
 // 👶 簡単に言うと：「配達要請データの設計図」
 class DeliveryRequest {
   final String id;

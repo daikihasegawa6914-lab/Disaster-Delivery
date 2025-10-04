@@ -1,3 +1,11 @@
+// 👶 このファイルは「配達マップ画面」のロジックです。
+// - Google Mapsと連携し、配達リクエストや避難所を地図上に表示します。
+// - 配達員の現在地取得やマーカー表示、リクエストの引き受け・進行管理も行います。
+// - 状態管理はsetStateとStreamBuilderでシンプルに実装されています。
+// - マップ上のマーカーはリクエストの状態や担当者によって色分けされます。
+// - ボトムシートで詳細表示や操作ができ、UI/UXにも配慮した設計です。
+// - データ取得はFirebaseのストリームを活用し、リアルタイム更新に対応しています。
+
 import 'package:flutter/material.dart';
 // import 'dart:math' as Math; // 扇状オフセット利用を廃止
 import 'dart:async';
@@ -8,6 +16,9 @@ import 'models.dart';
 import 'services.dart';
 import 'constants.dart';
 
+/// 👶 DeliveryMapScreen: 配達マップ画面のメインウィジェット。
+/// - GoogleMapウィジェットを中心に、配達リクエストや避難所の情報を地図上に表示。
+/// - 画面状態はStatefulWidgetで管理し、ユーザー操作やデータ更新に柔軟に対応。
 class DeliveryMapScreen extends StatefulWidget {
   const DeliveryMapScreen({super.key});
   static DeliveryMapScreenState? of(BuildContext context) => context.findAncestorStateOfType<DeliveryMapScreenState>();
@@ -15,6 +26,13 @@ class DeliveryMapScreen extends StatefulWidget {
   State<DeliveryMapScreen> createState() => DeliveryMapScreenState();
 }
 
+/// 👶 DeliveryMapScreenState: マップ画面の状態管理クラス。
+/// - GoogleMapControllerで地図操作。
+/// - _currentViewで表示モード（全件/緊急）を切替。
+/// - _personIdで現在の配達員IDを保持。
+/// - _sheltersで避難所リストを管理。
+/// - マーカーアイコンは状態ごとに色分けし、キャッシュで高速化。
+/// - ボトムシートの多重操作防止や安全な閉じ方も工夫。
 class DeliveryMapScreenState extends State<DeliveryMapScreen> {
   GoogleMapController? _mapController;
   String _currentView = 'all';
@@ -29,6 +47,8 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
   bool _sheetActionRunning = false; // ボトムシート内操作の多重防止 & pop 安全化
   bool _pendingSheetClose = false; // 多重 pop 防止フラグ
 
+  /// 👶 ボトムシートを安全に閉じるための関数。
+  /// - 多重popやアニメーションロックを防止。
   void _safeCloseSheet(BuildContext ctx) {
     if (_pendingSheetClose) return; // すでに処理予約済み
     _pendingSheetClose = true;
@@ -55,19 +75,22 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
   @override
   void initState() {
     super.initState();
-    _init();
+    _init(); // 👶 初期化処理（マーカー準備・避難所購読・位置取得など）
   }
 
+  /// 👶 指定座標へ地図カメラを移動する関数。
   Future<void> moveCameraTo(LatLng latLng, {double zoom = 15}) async {
     if (_mapController == null) return;
     await _mapController!.animateCamera(CameraUpdate.newCameraPosition(CameraPosition(target: latLng, zoom: zoom)));
   }
 
-  // 外部（進行中タブ）から特定リクエストへフォーカスし詳細を開く
+  /// 👶 他画面から特定リクエストの詳細を開くための関数。
   void focusOnRequest(DeliveryRequest r) {
     _openRequestDetail(r, fromExternal: true);
   }
 
+  /// 👶 画面初期化処理。
+  /// - マーカーアイコン準備、避難所データ購読、配達員ID取得、現在地移動などをまとめて実行。
   Future<void> _init() async {
     debugPrint('[MAP] init start');
     await _prepareMarkerIcons();
@@ -89,6 +112,8 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
   }
 
   // 状態別マーカー (簡易: defaultMarkerWithHue + alpha / hue の差 + 自分担当強調色)
+  /// 👶 マーカーアイコンを状態ごとに準備する関数。
+  /// - 待機中は赤、担当中は青、配達中はオレンジで色分け。
   Future<void> _prepareMarkerIcons() async {
     _iconWaiting = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
     // 自分担当 assigned: デフォ青より濃く表示 (hueBlue は 210° 相当 → 200° 近似で強調できないため同色 + later outline は未実装)
@@ -99,15 +124,18 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
 
   @override
   void dispose() {
-    _shelterSub?.cancel();
+    _shelterSub?.cancel(); // 👶 ストリーム購読解除（メモリリーク防止）
     super.dispose();
   }
 
+  /// 👶 ローカルストレージから配達員IDを取得する関数。
   Future<void> _loadPersonId() async {
     final prefs = await SharedPreferences.getInstance();
     _personId = prefs.getString('delivery_person_id') ?? '';
   }
 
+  /// 👶 現在地へ地図カメラを移動する関数。
+  /// - 位置情報取得にタイムアウト処理も追加。
   Future<void> _moveToCurrentLocation() async {
     try {
       debugPrint('[LOC] requesting current location');
@@ -130,6 +158,7 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 👶 メイン画面のUI構築。地図とFAB（表示モード切替）を配置。
     return Scaffold(
       // AppBar は MainScreen のオーバーレイ共通バーに移行
       body: _buildMapWithRequests(),
@@ -143,6 +172,9 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
 
   // ログアウト機能は MainScreen 側に集約
 
+  /// 👶 配達リクエストのストリームを監視し、地図上にマーカーを表示するUI構築関数。
+  /// - 緊急/通常モードで表示内容を切替。
+  /// - 自分担当のリクエストも別ストリームで取得し、重複なく統合。
   Widget _buildMapWithRequests() {
     final Stream<List<DeliveryRequest>> waitingStream = _currentView == 'emergency'
         ? FirebaseService.getEmergencyRequests()
@@ -323,7 +355,7 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
   // 旧: リクエストごとマーカー -> 新: グループ代表マーカー
   Marker _markerForGroup(DeliveryRequest representative, List<DeliveryRequest> group) {
     // 要件: waiting が1件でもあれば赤。それ以外で "全件 delivering" ならオレンジ。それでもなければ(= assigned を最低1件含む) 青。
-    // completed は除外対象なので考慮不要（呼び出し元でフィルタされている想定）。
+    // completed は除外対象なので考えられない（呼び出し元でフィルタされている想定）。
   bool hasWaiting = false;
   bool allDelivering = true; // 全件 delivering であることを仮定し、違反があれば false
     for (final r in group) {

@@ -4,6 +4,9 @@ import 'package:flutter/foundation.dart';
 import 'models.dart';
 import 'constants.dart';
 
+// 👶 このファイルは「サービス層（Firebase・位置情報・配達管理）」のロジックです。
+// - Firestoreや位置情報取得、配達リクエストの状態管理などをまとめています。
+
 // 👶 簡単に言うと：「Firebaseとやりとりする専門家」
 class FirebaseService {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;

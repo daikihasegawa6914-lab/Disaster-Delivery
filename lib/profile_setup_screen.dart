@@ -6,6 +6,9 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// 👶 このファイルは「プロフィール初期登録画面」のロジックです。
+// - 新規配達員の登録や入力バリデーション、Firestoreへの保存処理をまとめています。
+
 // 👤 配達員プロフィール設定画面
 class ProfileSetupScreen extends StatefulWidget {
   const ProfileSetupScreen({super.key});

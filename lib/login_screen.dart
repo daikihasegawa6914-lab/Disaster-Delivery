@@ -3,6 +3,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// 👶 このファイルは「ログイン画面」のロジックです。
+// - Firebase Authenticationを使った認証処理や、Firestoreへのプロフィール保存を行います。
+
 // 🔐 既存ユーザーログイン画面
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});

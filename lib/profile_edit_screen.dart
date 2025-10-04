@@ -6,6 +6,15 @@ import 'package:firebase_storage/firebase_storage.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+// 👶 このファイルは「配達員プロフィール編集画面」のロジックです。
+// - Firebase Firestoreを使ってプロフィール情報を保存・更新します。
+// - 名前や配送手段などの入力フォームがあり、バリデーションも行います。
+// - 編集完了時はSnackBarで通知し、画面遷移も制御します。
+// - 画面の状態管理はsetStateで行い、非同期処理も安全に実装されています。
+// - 既存のプロフィール情報は初期値としてフォームに反映されます。
+// - 変更内容はFirestoreとローカル（SharedPreferences）両方に保存されます。
+// - 画面のUIはMaterial Designをベースにしています。
+
 // 👤 プロフィール編集画面（既存配達員向け）
 // 初回登録時の ProfileSetupScreen と異なり：
 //  - 既存データのロード
@@ -20,24 +29,27 @@ class ProfileEditScreen extends StatefulWidget {
 }
 
 class _ProfileEditScreenState extends State<ProfileEditScreen> {
-  final _auth = FirebaseAuth.instance;
-  final _firestore = FirebaseFirestore.instance;
-  final _storage = FirebaseStorage.instance;
-  final _picker = ImagePicker();
-  final _formKey = GlobalKey<FormState>();
+  // 👶 Firebase関連のインスタンスを用意
+  final _auth = FirebaseAuth.instance; // 認証
+  final _firestore = FirebaseFirestore.instance; // データベース
+  final _storage = FirebaseStorage.instance; // 画像保存
+  final _picker = ImagePicker(); // 画像選択
+  final _formKey = GlobalKey<FormState>(); // フォームバリデーション
 
+  // 👶 入力フォーム用コントローラー
   final _nameController = TextEditingController();
   final _vehicleNumberController = TextEditingController();
   final _emailController = TextEditingController();
   final _newPasswordController = TextEditingController();
 
-  String _vehicleType = '🚗 自動車';
-  File? _newImageFile;
-  String? _currentImageUrl;
-  bool _loading = true;
-  bool _saving = false;
+  String _vehicleType = '🚗 自動車'; // 初期値
+  File? _newImageFile; // 新しい画像ファイル
+  String? _currentImageUrl; // 現在の画像URL
+  bool _loading = true; // 読み込み中フラグ
+  bool _saving = false; // 保存中フラグ
   bool _hasEmail = false; // 既にメールリンク済みか
 
+  // 👶 配送手段の選択肢
   final List<String> _vehicleTypes = const [
     '🚗 自動車',
     '🏍️ バイク',
@@ -48,10 +60,11 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   @override
   void initState() {
     super.initState();
-    _loadProfile();
+    _loadProfile(); // 👶 画面表示時にプロフィール情報を取得
   }
 
   Future<void> _loadProfile() async {
+    // 👶 Firestoreから既存プロフィール情報を取得し、フォームに反映
     try {
       final uid = _auth.currentUser?.uid;
       if (uid == null) {
@@ -79,6 +92,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   Future<void> _pickImage() async {
+    // 👶 画像選択ダイアログを表示し、選択された画像をセット
     try {
       final source = await showDialog<ImageSource>(
         context: context,
@@ -104,6 +118,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   Future<void> _save() async {
+    // 👶 入力内容をバリデーションし、Firestoreとローカルに保存
     if (!_formKey.currentState!.validate()) return;
     if (_nameController.text.trim().isEmpty) {
       _showSnack('❌ 配達員名は必須です');
@@ -133,7 +148,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
       final newEmail = _emailController.text.trim();
       final newPass = _newPasswordController.text.trim();
 
-      // メール/パスワード関連処理
+      // 👶 メール/パスワード関連処理
       if (!_hasEmail && newEmail.isNotEmpty && newPass.isNotEmpty) {
         // 未リンク → linkWithCredential
         if (newPass.length < 8) {
@@ -151,7 +166,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         // 既にメールあり → 変更 / パス更新
         if (newEmail.isNotEmpty && newEmail != user.email) {
           try {
-            await user.verifyBeforeUpdateEmail(newEmail); // 修正: updateEmail → verifyBeforeUpdateEmail
+            await user.verifyBeforeUpdateEmail(newEmail); // 👶 メール変更は新APIで安全に
             _showSnack('✅ メールを更新しました');
           } catch (e) {
             _showSnack('⚠️ メール更新失敗: $e');
@@ -171,7 +186,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         }
       }
 
-      // Firestore 更新
+      // 👶 Firestore 更新処理
       await _firestore.collection('delivery_persons').doc(user.uid).update({
         'name': _nameController.text.trim(),
         'vehicleType': _vehicleType,
@@ -182,7 +197,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
         'lastActiveAt': FieldValue.serverTimestamp(),
       });
 
-      // ローカルキャッシュも更新
+      // 👶 ローカルキャッシュも更新
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('delivery_person_name', _nameController.text.trim());
 
@@ -197,11 +212,13 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   }
 
   void _showSnack(String msg) {
+    // 👶 画面下部にメッセージを表示
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   @override
   void dispose() {
+    // 👶 コントローラーのメモリ解放
     _nameController.dispose();
     _vehicleNumberController.dispose();
     _emailController.dispose();
@@ -212,6 +229,7 @@ class _ProfileEditScreenState extends State<ProfileEditScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
+      // 👶 読み込み中はローディング表示
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       );

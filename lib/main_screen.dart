@@ -7,6 +7,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'services.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
+// 👶 このファイルは「メイン画面（タブナビゲーション）」のロジックです。
+// - 配達マップ・進行状況・避難所一覧など複数画面をタブで切り替えられます。
+// - 配達マップは Google Map を表示し、現在地やピンの操作が可能です。
+// - 進行状況画面では、担当している配達の一覧と詳細を確認できます。
+// - 避難所一覧画面では、避難所のリストを表示し、選択した避難所の位置に地図を移動できます。
+
 // 🏠 メインアプリ画面（配達マップのみ）
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});

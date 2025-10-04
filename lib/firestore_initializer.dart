@@ -2,6 +2,10 @@
 // 🔧 Deprecated test seeding utility (保持理由: 参考用サンプル). 本番ビルドでは未使用。
 import 'package:cloud_firestore/cloud_firestore.dart';
 
+// 👶 このファイルはFirestoreの初期化やテストデータ作成用のロジックです。
+// - 開発時にサンプルデータを簡単に投入できるように設計されています。
+// - 本番環境では通常無効化されるか、別の設定が使用されます。
+
 // 🗄️ Firestoreデータベース初期化とテストデータ作成
 class FirestoreInitializer {
   static final FirebaseFirestore _firestore = FirebaseFirestore.instance;

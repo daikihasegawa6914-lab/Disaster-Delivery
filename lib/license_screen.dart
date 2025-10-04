@@ -1,3 +1,6 @@
+// 👶 このファイルは「ライセンス情報画面」のロジックです。
+// - アプリで利用しているOSSライセンスや利用規約を表示します。
+
 import 'package:flutter/material.dart';
 
 class LicenseScreen extends StatelessWidget {

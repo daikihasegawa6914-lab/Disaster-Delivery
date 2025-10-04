@@ -23,7 +23,6 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
   StreamSubscription<List<Shelter>>? _shelterSub;
   // マーカーアイコンキャッシュ
   BitmapDescriptor? _iconWaiting;
-  BitmapDescriptor? _iconAssignedMine;
   BitmapDescriptor? _iconAssignedOthers;
   BitmapDescriptor? _iconDelivering;
   bool _openingSheet = false; // 連続タップガード
@@ -93,7 +92,6 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
   Future<void> _prepareMarkerIcons() async {
     _iconWaiting = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
     // 自分担当 assigned: デフォ青より濃く表示 (hueBlue は 210° 相当 → 200° 近似で強調できないため同色 + later outline は未実装)
-    _iconAssignedMine = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
     // 他人担当 assigned: 薄青 (標準 blue)
     _iconAssignedOthers = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
     _iconDelivering = BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
@@ -322,31 +320,50 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
 
   // 旧: リクエストごとマーカー -> 新: グループ代表マーカー
   Marker _markerForGroup(DeliveryRequest representative, List<DeliveryRequest> group) {
-    // 状態 + 所有者でアイコン分岐
-    BitmapDescriptor icon;
-    final r = representative;
-    if (r.status == RequestStatus.waiting) {
-      icon = _iconWaiting ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
-    } else if (r.status == RequestStatus.delivering) {
-      icon = _iconDelivering ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
-    } else { // assigned
-      if (r.deliveryPersonId == _personId && _personId.isNotEmpty) {
-        icon = _iconAssignedMine ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueAzure);
-      } else {
-        icon = _iconAssignedOthers ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue);
+    // ユーザー指定の簡略ルール:
+    // 1) waiting が1件でもあれば赤
+    // 2) (waiting なし) かつ assigned が1件でもあれば青
+    // 3) (waiting なし & assigned なし) で delivering のみならオレンジ
+    // completed はそもそもグループに含めない（呼び出し元で除外済）
+    bool anyWaiting = false;
+    bool anyAssigned = false;
+    bool anyDelivering = false;
+    for (final g in group) {
+      if (g.status == RequestStatus.waiting) { anyWaiting = true; break; }
+    }
+    if (!anyWaiting) {
+      for (final g in group) {
+        if (g.status == RequestStatus.assigned) { anyAssigned = true; break; }
+      }
+      if (!anyAssigned) {
+        for (final g in group) {
+          if (g.status == RequestStatus.delivering) { anyDelivering = true; break; }
+        }
       }
     }
-    final pos = LatLng(r.location.latitude, r.location.longitude);
+    BitmapDescriptor icon;
+    if (anyWaiting) {
+      icon = _iconWaiting ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
+    } else if (anyAssigned) {
+      icon = _iconAssignedOthers ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueBlue); // assigned 混在（自他不問）
+    } else if (anyDelivering) {
+      icon = _iconDelivering ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueOrange);
+    } else {
+      // ここに来るケース: group が空は理論上無し。全て completed は呼び出し元で除外されている。
+      icon = _iconWaiting ?? BitmapDescriptor.defaultMarkerWithHue(BitmapDescriptor.hueRed);
+    }
+
+    final pos = LatLng(representative.location.latitude, representative.location.longitude);
     final multiple = group.length > 1;
     return Marker(
-      markerId: MarkerId('grp_${r.id}_${group.length}'),
+      markerId: MarkerId('grp_${representative.id}_${group.length}'),
       position: pos,
       infoWindow: const InfoWindow(),
       onTap: () {
         if (multiple) {
           _openGroupedRequestsSheet(group, anchor: pos);
         } else {
-          _openRequestDetail(r);
+          _openRequestDetail(representative);
         }
       },
       icon: icon,

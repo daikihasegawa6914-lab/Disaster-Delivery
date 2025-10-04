@@ -45,5 +45,11 @@
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	
+	<!-- 📷 カメラ・フォトライブラリアクセス権限（プロフィール画像用） -->
+	<key>NSCameraUsageDescription</key>
+	<string>配達員のプロフィール写真を撮影するためにカメラへのアクセスが必要です</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>配達員のプロフィール写真を選択するためにフォトライブラリへのアクセスが必要です</string>
 </dict>
 </plist>

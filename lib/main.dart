@@ -1,127 +1,164 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart'; // flutterfire configure で生成されるやつ
+// 認証は一時凍結（指令1）。FirebaseAuth/Firestore の起動時プロフィール判定は撤去。
+import 'firebase_options.dart';
+import 'security/secure_error_handler.dart';
+import 'security/optimized_firestore.dart';
+// import 'firestore_initializer.dart'; // ルール厳格化後は初期テストデータ挿入を停止
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:geolocator/geolocator.dart';
+import 'main_screen.dart';
+import 'profile_setup_screen.dart';
+import 'profile_edit_screen.dart';
+import 'login_screen.dart';
+import 'license_screen.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
-Future<void> main() async {
+void main() async {
+  // 👶 簡単に言うと：「アプリを始める前の準備」
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Firebase 初期化（ここで失敗すると黒画面で落ちるので try/catch 付き）
+  
+  // 🛡️ グローバルエラーハンドリング設定
+  SecureErrorHandler.setupGlobalErrorHandling();
+  
+  // 🔐 セキュリティログ
+  SecureErrorHandler.logSecureError(
+    operation: 'App Initialization',
+    error: 'アプリケーション開始',
+    level: SecurityLevel.info,
+  );
+  
+  // Firebaseに接続（既存の設定を使用）
   try {
+    debugPrint('[BOOT] Firebase.initializeApp start');
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
+    debugPrint('[BOOT] Firebase.initializeApp done');
   } catch (e, st) {
-    debugPrint('Firebase init error: $e\n$st');
-    // 初期化失敗時でもクラッシュさせずに起動
+    debugPrint('[BOOT][ERROR] Firebase init failed: $e\n$st');
   }
-
-  runZonedGuarded(() {
-    runApp(const MyApp());
-  }, (error, stack) {
-    debugPrint('Uncaught error: $error\n$stack');
-  });
+  
+  // 🚀 Firestore最適化設定
+  try {
+    debugPrint('[BOOT] Firestore offline enable start');
+    await OptimizedFirestoreConfig.enableOfflineSupport();
+    debugPrint('[BOOT] Firestore offline enable done');
+  } catch (e) {
+    debugPrint('[BOOT][WARN] Firestore offline config failed: $e');
+  }
+  
+  // � 匿名認証を必ず確立（Firestoreルール: request.auth != null 対応）
+  await _ensureAnonymousAuth();
+  debugPrint('[BOOT] Anonymous auth uid=${FirebaseAuth.instance.currentUser?.uid}');
+  // 起動時 lastActiveAt をタッチ (プロフィールが既に存在する場合のみ)
+  try {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final doc = await FirebaseFirestore.instance.collection('delivery_persons').doc(uid).get();
+    if (doc.exists) {
+      await FirebaseFirestore.instance.collection('delivery_persons').doc(uid).update({
+        'lastActiveAt': FieldValue.serverTimestamp(),
+        'updatedAt': FieldValue.serverTimestamp(),
+      });
+      debugPrint('[BOOT] lastActiveAt touched');
+    }
+  } catch (e) {
+    debugPrint('[BOOT][WARN] lastActiveAt touch failed: $e');
+  }
+  
+  // 配達員用アプリを起動
+  runApp(const DeliveryApp());
 }
 
-class MyApp extends StatelessWidget {
-  const MyApp({super.key});
+// 匿名ログインを保証
+Future<void> _ensureAnonymousAuth() async {
+  final auth = FirebaseAuth.instance;
+  if (auth.currentUser == null) {
+    await auth.signInAnonymously();
+  }
+}
+
+class DeliveryApp extends StatelessWidget {
+  const DeliveryApp({super.key});
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Disaster Delivery',
-      debugShowCheckedModeBanner: false,
+      title: '🚚 災害配達員アプリ',
       theme: ThemeData(
-        colorSchemeSeed: Colors.teal,
+        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
+        appBarTheme: AppBarTheme(
+          backgroundColor: Colors.blue.shade100,
+          foregroundColor: Colors.blue.shade800,
+        ),
       ),
-      home: const HomePage(),
+      // 指令1: 起動時ユーザーフロー統一。AuthWrapper 廃止し、ローカル登録状態で分岐。
+      home: const StartupFlowWrapper(),
+      routes: {
+        '/main': (context) => const MainScreen(),
+        '/profile_setup': (context) => const ProfileSetupScreen(),
+        '/profile_edit': (context) => const ProfileEditScreen(),
+        '/login': (context) => const LoginScreen(),
+        '/license': (context) => const LicenseScreen(),
+      },
+      debugShowCheckedModeBanner: false,
     );
   }
 }
 
-class HomePage extends StatefulWidget {
-  const HomePage({super.key});
+// � 起動時フロー: SharedPreferences で delivery_person_id を確認
+class StartupFlowWrapper extends StatefulWidget {
+  const StartupFlowWrapper({super.key});
+
   @override
-  State<HomePage> createState() => _HomePageState();
+  State<StartupFlowWrapper> createState() => _StartupFlowWrapperState();
 }
 
-class _HomePageState extends State<HomePage> {
-  String _status = 'Firebase initialized.';
+class _StartupFlowWrapperState extends State<StartupFlowWrapper> {
+  Future<String?>? _future;
 
-  Future<void> _signInAnon() async {
-    try {
-      final cred = await FirebaseAuth.instance.signInAnonymously();
-      setState(() => _status = 'Signed in (anon): ${cred.user?.uid}');
-    } catch (e) {
-      setState(() => _status = 'Sign-in failed: $e');
-    }
+  @override
+  void initState() {
+    super.initState();
+    _future = _loadPersonId();
   }
 
-  Future<void> _requestLocation() async {
+  Future<String?> _loadPersonId() async {
+    final prefs = await SharedPreferences.getInstance();
     try {
-      bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
-      if (!serviceEnabled) {
-        setState(() => _status = '位置情報サービスがオフです。');
-        return;
-      }
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
-      }
-      if (permission == LocationPermission.deniedForever ||
-          permission == LocationPermission.denied) {
-        setState(() => _status = '位置情報の権限がありません。設定から許可してください。');
-        return;
-      }
-      final pos = await Geolocator.getCurrentPosition();
-      setState(() => _status = '現在地: (${pos.latitude}, ${pos.longitude})');
+      final id = prefs.getString('delivery_person_id');
+      debugPrint('[FLOW] Loaded delivery_person_id=$id');
+      return id;
     } catch (e) {
-      setState(() => _status = '位置情報取得エラー: $e');
+      debugPrint('[FLOW][ERROR] SharedPreferences load failed: $e');
+      rethrow;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final user = FirebaseAuth.instance.currentUser;
-
-    return Scaffold(
-      appBar: AppBar(title: const Text('Disaster Delivery')),
-      body: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(_status),
-            const SizedBox(height: 16),
-            Text('Auth: ${user == null ? "未ログイン" : "ログイン中 (${user.uid})"}'),
-            const SizedBox(height: 24),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                FilledButton.icon(
-                  onPressed: _signInAnon,
-                  icon: const Icon(Icons.login),
-                  label: const Text('匿名ログイン'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: _requestLocation,
-                  icon: const Icon(Icons.my_location),
-                  label: const Text('位置情報を取得'),
-                ),
-              ],
+    return FutureBuilder<String?>(
+      future: _future,
+      builder: (context, snapshot) {
+        if (snapshot.hasError) {
+          return Scaffold(
+            body: Center(
+              child: Text('初期化エラー: ${snapshot.error}', style: const TextStyle(color: Colors.red)),
             ),
-            const SizedBox(height: 24),
-            const Text(
-              'この画面は動作確認用の仮ホームです。\n'
-                  '後で画面遷移（マップ/一覧/依頼作成など）に差し替えてOK。',
+          );
+        }
+        if (snapshot.connectionState != ConnectionState.done) {
+          return const Scaffold(
+            backgroundColor: Colors.blue,
+            body: Center(
+              child: CircularProgressIndicator(color: Colors.white),
             ),
-          ],
-        ),
-      ),
+          );
+        }
+        final hasId = (snapshot.data != null && snapshot.data!.isNotEmpty);
+        return hasId ? const MainScreen() : const ProfileSetupScreen();
+      },
     );
   }
 }

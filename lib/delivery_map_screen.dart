@@ -503,19 +503,21 @@ class DeliveryMapScreenState extends State<DeliveryMapScreen> {
                     icon: const Icon(Icons.handshake),
                     label: const Text('🤝 この配達を引き受ける'),
                     onPressed: _personId.isEmpty ? null : () async {
-                      try {
-                        final navigator = Navigator.of(context);
-                        await FirebaseService.assignDelivery(r.id, _personId);
-                        if (mounted) {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('配達を引き受けました')),
-                          );
-                        }
-                        if (!mounted) return;
+                      final navigator = Navigator.of(context);
+                      // 失敗時のみ視覚通知。成功時は静かに閉じる。
+                      final ok = await FirebaseService.assignDelivery(r.id, _personId);
+                      if (!mounted) return;
+                      if (ok) {
                         navigator.pop();
-                      } catch (e) {
-                        if (!mounted) return;
-                        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('失敗: $e')));
+                      } else {
+                        ScaffoldMessenger.of(context)
+                          ..hideCurrentSnackBar()
+                          ..showSnackBar(
+                            const SnackBar(
+                              content: Text('他の配達員が先に取得しました'),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
                       }
                     },
                     style: ElevatedButton.styleFrom(backgroundColor: Colors.blue, foregroundColor: Colors.white),

@@ -75,45 +75,91 @@ class FirebaseService {
   }
 
 
-  // 🤝 要請を引き受ける（assign 専用。UI上は「この配達を引き受ける」）
-  static Future<void> assignDelivery(String requestId, String deliveryPersonId) async {
-    await _firestore.collection(requestsCollection).doc(requestId).update({
-      'status': RequestStatus.assigned,
-      // 担当者IDを一本化
-      'deliveryPersonId': deliveryPersonId,
-      'assignedAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+  // =========================
+  // 🔄 共通トランザクションユーティリティ
+  // =========================
+  static Future<bool> _txnUpdateRequest({
+    required String requestId,
+    required bool Function(Map<String, dynamic> current) precondition,
+    required Map<String, dynamic> Function(Map<String, dynamic> current) buildUpdate,
+  }) async {
+    final ref = _firestore.collection(requestsCollection).doc(requestId);
+    try {
+      return await _firestore.runTransaction<bool>((tx) async {
+        final snap = await tx.get(ref);
+        if (!snap.exists) return false;
+        final data = snap.data() as Map<String, dynamic>;
+        if (!precondition(data)) return false;
+        final upd = buildUpdate(data);
+        tx.update(ref, {
+          ...upd,
+          'updatedAt': FieldValue.serverTimestamp(),
+        });
+        return true;
+      });
+    } catch (e) {
+      debugPrint('⚠️ _txnUpdateRequest failed: $e');
+      return false;
+    }
   }
 
-  // ↩️ 引き受け解除 (assigned -> waiting)。配達開始前のみ許可。
+  // 🤝 要請を引き受ける（assign 専用。UI上は「この配達を引き受ける」）
+  // 成功: true / 競合・不正状態: false
+  static Future<bool> assignDelivery(String requestId, String deliveryPersonId) async {
+    return _txnUpdateRequest(
+      requestId: requestId,
+      precondition: (cur) {
+        final status = cur['status'];
+        final dp = cur['deliveryPersonId'];
+        final isWaiting = status == RequestStatus.waiting || status == 'wating';
+        final unclaimed = dp == null || (dp is String && dp.isEmpty);
+        return isWaiting && unclaimed;
+      },
+      buildUpdate: (cur) => {
+        'status': RequestStatus.assigned,
+        'deliveryPersonId': deliveryPersonId,
+        'assignedAt': FieldValue.serverTimestamp(),
+      },
+    );
+  }
+
+  // ↩️ 引き受け解除 (assigned -> waiting)。配達開始前のみ許可。署名は従来通り void のまま（UI 影響最小化）
   static Future<void> cancelAssignment(String requestId, String deliveryPersonId) async {
-    await _firestore.collection(requestsCollection).doc(requestId).update({
-      'status': RequestStatus.waiting,
-      'deliveryPersonId': null,
-      'canceledAt': FieldValue.serverTimestamp(),
-      'canceledBy': deliveryPersonId,
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    await _txnUpdateRequest(
+      requestId: requestId,
+      precondition: (cur) => cur['status'] == RequestStatus.assigned && cur['deliveryPersonId'] == deliveryPersonId,
+      buildUpdate: (cur) => {
+        'status': RequestStatus.waiting,
+        'deliveryPersonId': null,
+        'canceledAt': FieldValue.serverTimestamp(),
+        'canceledBy': deliveryPersonId,
+      },
+    );
   }
 
   // 🚀 配達開始（assigned → delivering）
   static Future<void> startDelivery(String requestId, String deliveryPersonId) async {
-    await _firestore.collection(requestsCollection).doc(requestId).update({
-      'status': RequestStatus.delivering,
-      'deliveryPersonId': deliveryPersonId, // 念のため保持
-      'deliveryStartedAt': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    await _txnUpdateRequest(
+      requestId: requestId,
+      precondition: (cur) => cur['status'] == RequestStatus.assigned && cur['deliveryPersonId'] == deliveryPersonId,
+      buildUpdate: (cur) => {
+        'status': RequestStatus.delivering,
+        'deliveryPersonId': deliveryPersonId,
+        'deliveryStartedAt': FieldValue.serverTimestamp(),
+      },
+    );
   }
 
-  // ✅ 配達を完了する
+  // ✅ 配達を完了する (delivering → completed)
   static Future<void> completeDelivery(String requestId) async {
-    await _firestore.collection(requestsCollection).doc(requestId).update({
-      'status': RequestStatus.completed,
-      'completedTime': FieldValue.serverTimestamp(),
-      'updatedAt': FieldValue.serverTimestamp(),
-    });
+    await _txnUpdateRequest(
+      requestId: requestId,
+      precondition: (cur) => cur['status'] == RequestStatus.delivering,
+      buildUpdate: (cur) => {
+        'status': RequestStatus.completed,
+        'completedTime': FieldValue.serverTimestamp(),
+      },
+    );
   }
 
   // 📊 配達統計を記録（任意）

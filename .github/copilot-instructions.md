@@ -1,192 +1,191 @@
 # Copilot Instructions for Disaster Delivery App
 
-## 🏗️ Project Overview
+## 🏗️ プロジェクト概要
 
-This is a **Flutter disaster delivery app** for delivery drivers during emergency situations. The app connects delivery personnel with evacuation shelters and disaster victims through Firebase integration.
+このアプリは、災害時に避難所や被災者と配送ドライバーをつなぐ **Flutter 災害配送アプリ** です。Firebase を活用したリアルタイムデータ管理を特徴としています。
 
-**Key Characteristics:**
-- 8-day hackathon project with 3-minute presentation format
-- Single developer learning project with Firebase basics
-- Japanese comments throughout codebase (👶 emoji marks beginner-friendly explanations)
-- Security-first approach with comprehensive error handling
+**主な特徴:**
+- 8日間のハッカソンプロジェクト
+- 初学者向けのコードベース（日本語コメント付き）
+- セキュリティを最優先に設計
 
-## 📁 Architecture Pattern
+## 📁 アーキテクチャ構成
 
-### Core Structure
+### コア構造
 ```
 lib/
-├── main.dart                    # App entry point with Firebase & security setup
-├── main_screen.dart            # Tab navigation (DeliveryMapScreen, ShelterScreen)
-├── models.dart                 # Data models (DeliveryRequest, DeliveryPerson, Shelter)
-├── services.dart               # Firebase & location services
-├── security/                   # Security layer (mandatory for all operations)
+├── main.dart                    # アプリのエントリーポイント
+├── main_screen.dart            # タブナビゲーション（DeliveryMapScreen, ShelterScreen）
+├── models.dart                 # データモデル（DeliveryRequest, DeliveryPerson, Shelter）
+├── services.dart               # Firebase & 位置情報サービス
+├── security/                   # セキュリティレイヤー
 │   ├── secure_error_handler.dart
 │   ├── input_validator.dart
 │   └── optimized_firestore.dart
-├── delivery_map_screen.dart    # Google Maps with delivery requests
-└── shelter_screen.dart         # Evacuation shelter information
+├── delivery_map_screen.dart    # Google Maps で配送リクエストを表示
+└── shelter_screen.dart         # 避難所情報
 ```
 
-### Data Flow Pattern
-1. **Firebase Streams** → Real-time data binding
-2. **Security Layer** → Input validation & error sanitization
-3. **Location Services** → GPS integration for delivery routing
-4. **State Management** → Simple setState (no complex state management)
+### データフローパターン
+1. **Firebase ストリーム** → リアルタイムデータバインディング
+2. **セキュリティレイヤー** → 入力検証とエラーサニタイズ
+3. **位置情報サービス** → 配送ルートの GPS 統合
+4. **状態管理** → `setState` を使用したシンプルな管理
 
-## 🔥 Firebase Integration Patterns
+## 🔥 Firebase 統合パターン
 
-### Firestore Collections
-- `requests` - Delivery requests with status tracking
-- `deliveries` - Completed delivery records
-- `shelters` - Evacuation shelter information
+### Firestore コレクション
+- `requests` - 配送リクエストとステータス管理
+- `deliveries` - 完了した配送記録
+- `shelters` - 避難所情報
 
-### Security Rules Philosophy
-Located in `firestore.rules` - implements comprehensive input validation:
-- Coordinate bounds validation (Tokyo area: 35-36°N, 139-140.5°E)
-- String sanitization against injection attacks
-- Rate limiting (5 requests per minute)
-- Read-only for critical disaster data
+### セキュリティルールの哲学
+`firestore.rules` に記載:
+- 東京エリアの座標検証（35-36°N, 139-140.5°E）
+- 文字列のサニタイズ（インジェクション攻撃対策）
+- レート制限（1分間に5リクエスト）
+- 重要な災害データは読み取り専用
 
-### Service Layer Pattern
-In `services.dart`:
+### サービスレイヤーパターン
+`services.dart`:
 ```dart
-// Stream-based real-time updates
+// ストリームベースのリアルタイム更新
 FirebaseService.getWaitingRequests()
 FirebaseService.getMyDeliveries(deliveryPersonId)
 
-// Status management
+// ステータス管理
 FirebaseService.startDelivery(requestId, deliveryPersonId)
 FirebaseService.completeDelivery(requestId)
 ```
 
-## 🛡️ Security-First Development
+## 🛡️ セキュリティ優先の開発
 
-### Mandatory Security Layer
-Every operation must go through `security/` modules:
-- **SecureErrorHandler**: Sanitizes sensitive data in error messages (API keys, emails, phone numbers)
-- **InputValidator**: Validates all user inputs before Firebase operations
-- **OptimizedFirestore**: Manages offline support and connection optimization
+### 必須セキュリティレイヤー
+すべての操作は `security/` モジュールを通過:
+- **SecureErrorHandler**: エラーメッセージ内の機密データをサニタイズ
+- **InputValidator**: Firebase 操作前にすべてのユーザー入力を検証
+- **OptimizedFirestore**: オフラインサポートと接続最適化を管理
 
-### Error Handling Pattern
+### エラーハンドリングパターン
 ```dart
-// In main.dart - Global error handling setup
+// main.dart - グローバルエラーハンドリング設定
 SecureErrorHandler.setupGlobalErrorHandling();
 SecureErrorHandler.logSecureError(
-  operation: 'Operation Name',
+  operation: '操作名',
   error: errorObject,
   level: SecurityLevel.error,
 );
 ```
 
-## 🗺️ Google Maps Integration
+## 🗺️ Google Maps 統合
 
-### Location Service Pattern
+### 位置情報サービスパターン
 ```dart
-// Current location with permission handling
+// 現在地取得と権限処理
 LocationService.getCurrentLocation()
 LocationService.calculateDistance(from, to)
 
-// Coordinate validation for Tokyo disaster area
+// 東京災害エリアの座標検証
 isValidCoordinates(lat, lng) // 35-36°N, 139-140.5°E
 ```
 
-## 🎯 Development Workflow
+## 🎯 開発ワークフロー
 
-### Setup Commands
+### セットアップコマンド
 ```bash
-# Firebase configuration (required first)
+# Firebase 設定（最初に必要）
 cp lib/firebase_options.dart.example lib/firebase_options.dart
-# Edit with actual Firebase config values
+# 実際の Firebase 設定値を編集
 
-# Dependencies
+# 依存関係の取得
 flutter pub get
 
-# Run with Firebase connection
+# Firebase 接続で実行
 flutter run
 ```
 
-### Testing Firebase Rules
+### Firebase ルールのテスト
 ```bash
-# Deploy security rules
+# セキュリティルールのデプロイ
 firebase deploy --only firestore:rules
 
-# Test rules locally
+# ローカルでルールをテスト
 firebase emulators:start --only firestore
 ```
 
-## 🌟 Code Conventions
+## 🌟 コード規約
 
-### Comment Style
-- **👶** marks beginner-friendly explanations in Japanese
-- **🛡️** indicates security-related code
-- **🔥** marks Firebase operations
-- **📍** for location/mapping features
+### コメントスタイル
+- **👶** 初学者向けの日本語説明
+- **🛡️** セキュリティ関連コード
+- **🔥** Firebase 操作
+- **📍** 位置情報/マッピング機能
 
-### Model Pattern
-Models in `models.dart` follow this structure:
+### モデルパターン
+`models.dart` のモデルは以下の構造:
 ```dart
 class DeliveryRequest {
-  // Factory constructor from Firestore
+  // Firestore からのファクトリコンストラクタ
   factory DeliveryRequest.fromFirestore(DocumentSnapshot doc)
-  
-  // Method to convert to Firestore format
+
+  // Firestore 形式への変換メソッド
   Map<String, dynamic> toFirestore()
-  
-  // Immutable updates
+
+  // 不変の更新
   DeliveryRequest copyWith({...})
-  
-  // UI helper methods
+
+  // UI ヘルパーメソッド
   String get priorityColor  // 🔴🟡🟢
   String get statusIcon     // ⏳🚚✅
 }
 ```
 
-### Stream-Based UI Updates
+### ストリームベースの UI 更新
 ```dart
-// Real-time data binding pattern
+// リアルタイムデータバインディングパターン
 StreamBuilder<List<DeliveryRequest>>(
   stream: FirebaseService.getWaitingRequests(),
   builder: (context, snapshot) {
-    // Handle loading, error, data states
+    // ローディング、エラー、データ状態の処理
   },
 )
 ```
 
-## 🚨 Critical Integration Points
+## 🚨 重要な統合ポイント
 
-### Firebase Configuration
-- Project ID: `disaster-delivery-app`
-- Configuration files: `android/app/google-services.json`, `ios/Runner/GoogleService-Info.plist`
-- Dart options: `lib/firebase_options.dart` (template in `.example`)
+### Firebase 設定
+- プロジェクト ID: `disaster-delivery-app`
+- 設定ファイル: `android/app/google-services.json`, `ios/Runner/GoogleService-Info.plist`
+- Dart オプション: `lib/firebase_options.dart`（テンプレートは `.example` にあり）
 
 ### Google Maps API
-- Requires API key in platform-specific configuration
-- Map markers show delivery request status with emoji indicators
-- Distance calculation for delivery optimization
+- プラットフォーム固有の設定で API キーが必要
+- 地図マーカーは配送リクエストのステータスを絵文字で表示
+- 配送最適化のための距離計算
 
-### Environment-Specific Patterns
-- Development: Uses Firebase emulators when available
-- Production: `production_config.dart` for production settings
-- Error logging: Memory-limited (50 entries max) for mobile performance
+### 環境固有のパターン
+- 開発: Firebase エミュレータを使用
+- 本番: `production_config.dart` を使用
+- エラーログ: モバイルパフォーマンスのためメモリ制限（最大50件）
 
-## 🔄 State Management Approach
+## 🔄 状態管理アプローチ
 
-**Deliberately Simple**: Uses `setState` and `StreamBuilder` instead of complex state management
-- Suitable for 8-day development timeline
-- Easier debugging for single developer
-- Real-time updates handled by Firebase streams
+**意図的にシンプル**: 複雑な状態管理の代わりに `setState` と `StreamBuilder` を使用
+- 8日間の開発期間に適した設計
+- 単一開発者向けの簡易デバッグ
+- Firebase ストリームによるリアルタイム更新
 
-## 🎨 UI Patterns
+## 🎨 UI パターン
 
-### Bottom Tab Navigation
-`MainScreen` with `IndexedStack` for tab persistence:
-- 🚚 Delivery Map (primary screen)
-- 🏠 Shelter Information
-- Future: Statistics/Settings tabs
+### ボトムタブナビゲーション
+`MainScreen` はタブの永続性のために `IndexedStack` を使用:
+- 🚚 配送マップ（メイン画面）
+- 🏠 避難所情報
+- 将来的には統計/設定タブを追加予定
 
 ### Material Design 3
 - `ColorScheme.fromSeed(seedColor: Colors.blue)`
-- Consistent blue theme for emergency service appearance
-- Japanese text throughout interface
+- 緊急サービスの外観に適した一貫した青色テーマ
+- インターフェース全体で日本語テキストを使用
 
-When working on this codebase, prioritize security validation, maintain the simple architecture pattern, and ensure all Firebase operations go through the established service layer.
+このコードベースで作業する際は、セキュリティ検証を優先し、シンプルなアーキテクチャパターンを維持し、すべての Firebase 操作が確立されたサービスレイヤーを通過することを確認してください。

@@ -1,49 +1,59 @@
-## 災害配達員支援デリバリー
+# 災害配達員支援デリバリー
 
-本リポジトリは「配達員がプロフィール登録 → マップで配送依頼を引き受け → 完了報告」までの最短動線のみを残したシンプル版です。余剰ドキュメントと将来構想は削除し、現在必要な事実のみを記載します。
+このリポジトリは、災害時に配達員が避難所や被災者を支援するためのシンプルな配送アプリです。配達員がプロフィール登録を行い、マップ上で配送依頼を引き受け、完了報告を行うまでの基本機能を提供します。
 
-### 現在提供する画面
-1. プロフィール登録 (`ProfileSetupScreen`)
-2. メインタブ (`MainScreen`)
-   - 配達マップ (`DeliveryMapScreen`) : リアルタイム依頼表示 / 引き受け / 完了
-   - 避難所一覧 (`ShelterScreen`) : Firestoreの`shelters`参照（読み取りのみ）
+## 提供する画面
+1. **プロフィール登録** (`ProfileSetupScreen`)
+2. **メインタブ** (`MainScreen`)
+   - **配達マップ** (`DeliveryMapScreen`): リアルタイム依頼表示、引き受け、完了
+   - **避難所一覧** (`ShelterScreen`): Firestoreの`shelters`コレクションを参照（読み取り専用）
 
-### データコレクション
-- `delivery_persons`: 配達員プロフィール (匿名認証UID = ドキュメントID)
+## データコレクション
+- `delivery_persons`: 配達員プロフィール（匿名認証UIDをドキュメントIDとして使用）
 - `requests`: 配送依頼（ステータス: waiting / assigned / delivering / completed）
-- `shelters`: 避難所情報（読み取りのみ）
+- `shelters`: 避難所情報（読み取り専用）
 
-### 認証
-- Firebase Anonymous Auth を起動時に強制実行（Firestore ルール `request.auth != null` 満たす）
+## Firebase 認証
+- **匿名認証**: アプリ起動時に自動実行。
+- **Firestore ルール**: `request.auth != null` を満たす必要あり。
 
-### 主要ファイル
+## 主要ファイル
 ```
 lib/
-  main.dart                 // 起動 & 匿名認証 & フロー分岐
-  main_screen.dart          // タブ (マップ / 避難所)
-  delivery_map_screen.dart  // 依頼表示/引き受け/完了
+  main.dart                 // アプリのエントリーポイント
+  main_screen.dart          // タブナビゲーション（マップ / 避難所）
+  delivery_map_screen.dart  // 配送依頼の表示、引き受け、完了
   profile_setup_screen.dart // 初回プロフィール登録
   services.dart             // Firestore操作
-  models.dart               // モデル定義
-  constants.dart            // ステータス/優先度定数
-  security/ (最小限稼働)
+  models.dart               // データモデル定義
+  constants.dart            // ステータスや優先度の定数
+  security/                 // セキュリティ関連モジュール
     secure_error_handler.dart
     optimized_firestore.dart
 ```
 
-### セットアップ手順（最小）
-1. Firebase プロジェクトを作成し Android / iOS アプリ登録
-2. 設定ファイル配置:
+## セットアップ手順
+1. Firebase プロジェクトを作成し、Android / iOS アプリを登録。
+2. 設定ファイルを配置:
    - `android/app/google-services.json`
    - `ios/Runner/GoogleService-Info.plist`
-3. `cp lib/firebase_options.dart.example lib/firebase_options.dart` を編集
-4. 依存取得: `flutter pub get`
-5. 実行: `flutter run`
+3. `lib/firebase_options.dart.example` をコピーして編集:
+   ```bash
+   cp lib/firebase_options.dart.example lib/firebase_options.dart
+   ```
+4. 依存関係を取得:
+   ```bash
+   flutter pub get
+   ```
+5. アプリを実行:
+   ```bash
+   flutter run
+   ```
 
-### 開発メモ
-- 初期テストデータ投入コードは無効化（本番ルール準拠のため）
-- 依頼作成は現在アプリ内UI無し（外部でFirestoreへ直接追加して動作確認）
-- 競合防止のため配達引き受けは `status == waiting` を条件に `assignDelivery` で更新
+## 開発メモ
+- 初期テストデータの投入コードは無効化済み（本番ルール準拠）。
+- 配送依頼の作成は現在アプリ内UIに未実装（Firestoreで直接追加して動作確認）。
+- 配達引き受けは `status == waiting` の条件でのみ可能。
 
-### ライセンス
+## ライセンス
 MIT

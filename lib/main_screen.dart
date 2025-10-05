@@ -12,8 +12,14 @@ import 'package:firebase_auth/firebase_auth.dart';
 // - 配達マップは Google Map を表示し、現在地やピンの操作が可能です。
 // - 進行状況画面では、担当している配達の一覧と詳細を確認できます。
 // - 避難所一覧画面では、避難所のリストを表示し、選択した避難所の位置に地図を移動できます。
+// - 画面下部のナビゲーションバーで直感的に画面を切り替えられます。
+// - プロフィール編集・ライセンス表示・ログアウトなどのメニューもAppBarから操作可能です。
+// - 配達員の担当状況はフッターでリアルタイム表示され、UI/UXにも配慮した設計です。
 
 // 🏠 メインアプリ画面（配達マップのみ）
+/// 👶 MainScreen: アプリのメイン画面（タブナビゲーション）を管理するウィジェット。
+/// - 配達マップ・進行状況・避難所一覧の3画面をタブで切り替え。
+/// - 画面ごとに役割が分かれており、ユーザーが直感的に操作できる設計。
 class MainScreen extends StatefulWidget {
   const MainScreen({super.key});
 
@@ -21,20 +27,25 @@ class MainScreen extends StatefulWidget {
   State<MainScreen> createState() => _MainScreenState();
 }
 
+/// 👶 _MainScreenState: メイン画面の状態管理クラス。
+/// - 現在のタブインデックスや配達員IDのキャッシュ、画面の初期化・切替を管理。
+/// - 各画面（マップ・進行状況・避難所）をリストで保持し、タブ切替時に表示。
 class _MainScreenState extends State<MainScreen> {
-  int _currentIndex = 0;
-  String? _deliveryPersonIdCache; // 進行状況画面用
-  bool _loadingId = true;
-  final GlobalKey<DeliveryMapScreenState> _mapKey = GlobalKey<DeliveryMapScreenState>();
+  int _currentIndex = 0; // 👶 現在表示中のタブインデックス（0:マップ, 1:進行中, 2:避難所）
+  String? _deliveryPersonIdCache; // 👶 進行状況画面用の配達員IDキャッシュ
+  bool _loadingId = true; // 👶 配達員ID取得中フラグ
+  final GlobalKey<DeliveryMapScreenState> _mapKey = GlobalKey<DeliveryMapScreenState>(); // 👶 マップ画面の状態参照用キー
 
-  List<Widget> _pages = const [];
+  List<Widget> _pages = const []; // 👶 各タブ画面のウィジェットリスト
 
   @override
   void initState() {
     super.initState();
-    _initDriverId();
-    _buildPages();
+    _initDriverId(); // 👶 起動時に配達員IDを取得
+    _buildPages();   // 👶 画面リストを構築
   }
+
+  /// 👶 ローカルストレージから配達員IDを取得し、画面リストを再構築。
   Future<void> _initDriverId() async {
     final prefs = await SharedPreferences.getInstance();
     final id = prefs.getString('delivery_person_id');
@@ -45,6 +56,10 @@ class _MainScreenState extends State<MainScreen> {
     });
   }
 
+  /// 👶 各タブ画面のウィジェットリストを構築。
+  /// - マップ画面はDeliveryMapScreen。
+  /// - 進行状況画面はDeliveryProgressScreen（配達員ID渡し、リクエスト選択でマップにジャンプ）。
+  /// - 避難所一覧画面はShelterListScreen（避難所選択でマップにジャンプ）。
   void _buildPages() {
     final newPages = <Widget>[
       DeliveryMapScreen(key: _mapKey),
@@ -54,7 +69,7 @@ class _MainScreenState extends State<MainScreen> {
               deliveryPersonId: _deliveryPersonIdCache ?? '',
               onJumpToRequest: (req) {
                 setState(() => _currentIndex = 0);
-                // map 表示に切り替わった次フレームでフォーカス
+                // 👶 マップ表示に切り替わった次フレームでリクエスト詳細にフォーカス
                 WidgetsBinding.instance.addPostFrameCallback((_) {
                   _mapKey.currentState?.focusOnRequest(req);
                 });
@@ -63,6 +78,7 @@ class _MainScreenState extends State<MainScreen> {
       ShelterListScreen(
         onShelterSelected: (shelter) {
           setState(() => _currentIndex = 0);
+          // 👶 マップ表示に切り替わった次フレームで避難所位置にカメラ移動
           WidgetsBinding.instance.addPostFrameCallback((_) {
             _mapKey.currentState?.moveCameraTo(LatLng(shelter.location.latitude, shelter.location.longitude), zoom: 17);
           });
@@ -74,6 +90,7 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // 👶 現在のタブに応じて画面を表示。IndexedStackで状態保持。
     final body = _pages.isEmpty
         ? const Center(child: CircularProgressIndicator())
         : IndexedStack(index: _currentIndex, children: _pages);
@@ -93,21 +110,23 @@ class _MainScreenState extends State<MainScreen> {
         actions: [
           if (_currentIndex == 0)
             IconButton(
-              tooltip: '現在地'
-                  ,
+              tooltip: '現在地',
               icon: const Icon(Icons.my_location),
               onPressed: () => _mapKey.currentState?.moveCameraTo(const LatLng(35.681236, 139.767125), zoom: 14),
             ),
           PopupMenuButton<String>(
             onSelected: (v) async {
               if (v == 'edit') {
+                // 👶 プロフィール編集画面へ遷移。編集後はSnackBarで通知。
                 final changed = await Navigator.of(context).pushNamed('/profile_edit');
                 if (changed == true && mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('プロフィールを更新しました')));
                 }
               } else if (v == 'logout') {
+                // 👶 ログアウト処理（ID削除・匿名認証・ログイン画面へ遷移）
                 await _handleLogout();
               } else if (v == 'license') {
+                // 👶 ライセンス情報画面へ遷移
                 if (mounted) Navigator.of(context).pushNamed('/license');
               }
             },
@@ -143,6 +162,9 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
+  /// 👶 ログアウト処理。
+  /// - 確認ダイアログ表示→ID削除→匿名認証→ログイン画面へ遷移。
+  /// - メールアドレス未登録の場合は再ログイン不可なので注意。
   Future<void> _handleLogout() async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -166,6 +188,9 @@ class _MainScreenState extends State<MainScreen> {
   }
 }
 
+/// 👶 _DeliveryStatusFooter: 画面下部に配達員の担当状況をリアルタイム表示するウィジェット。
+/// - StreamBuilderで担当件数・配達中件数を取得し、バッジ表示。
+/// - 何も担当していない場合は非表示。
 class _DeliveryStatusFooter extends StatelessWidget {
   final String deliveryPersonId;
   const _DeliveryStatusFooter({required this.deliveryPersonId});
@@ -182,7 +207,7 @@ class _DeliveryStatusFooter extends StatelessWidget {
         final assigned = data['assigned'] ?? 0;
         final delivering = data['delivering'] ?? 0;
         if (assigned + delivering == 0) {
-          // 何も担当していない時は表示しない
+          // 👶 何も担当していない時はフッター非表示
           return const SizedBox.shrink();
         }
         return Align(
@@ -192,7 +217,7 @@ class _DeliveryStatusFooter extends StatelessWidget {
             child: Container(
               padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
               decoration: BoxDecoration(
-                // マップ右上ステータスバーと差別化: 強めの青グラデ + 枠線
+                // 👶 マップ右上ステータスバーと差別化: 強めの青グラデ + 枠線
                 gradient: LinearGradient(colors: [Colors.indigo.shade600, Colors.blue.shade400]),
                 borderRadius: BorderRadius.circular(16),
                 boxShadow: const [BoxShadow(color: Colors.black38, blurRadius: 6, offset: Offset(0,2))],

@@ -17,19 +17,13 @@ import 'package:flutter/foundation.dart'
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
     if (kIsWeb) {
-      throw UnsupportedError(
-        'DefaultFirebaseOptions have not been configured for web - '
-        'you can reconfigure this by running the FlutterFire CLI again.',
-      );
+      return web;
     }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         return android;
       case TargetPlatform.iOS:
-        throw UnsupportedError(
-          'DefaultFirebaseOptions have not been configured for ios - '
-          'you can reconfigure this by running the FlutterFire CLI again.',
-        );
+        return ios;
       case TargetPlatform.macOS:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for macos - '
@@ -54,9 +48,29 @@ class DefaultFirebaseOptions {
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyD9SO41ny0ZMASCc9eSNVPZ_noSVTa609s',
-    appId: '1:694310204931:android:1bde6d7f87cf23cb414036',
+    appId: '1:694310204931:android:ffbc076cc5beae31414036',
     messagingSenderId: '694310204931',
     projectId: 'disaster-delivery-app',
     storageBucket: 'disaster-delivery-app.firebasestorage.app',
   );
+
+  static const FirebaseOptions web = FirebaseOptions(
+    apiKey: 'AIzaSyBIetUPBYAbOudsL2Dh4WqH8c_p_j1Gick',
+    appId: '1:694310204931:web:7f6a2bff4572ced8414036',
+    messagingSenderId: '694310204931',
+    projectId: 'disaster-delivery-app',
+    authDomain: 'disaster-delivery-app.firebaseapp.com',
+    storageBucket: 'disaster-delivery-app.firebasestorage.app',
+    measurementId: 'G-8RFYLHRBDC',
+  );
+
+  static const FirebaseOptions ios = FirebaseOptions(
+    apiKey: 'AIzaSyClqJmTaE6bFLbgiwetxEBquxzbgY7x8jw',
+    appId: '1:694310204931:ios:3eba4af2b814b7ed414036',
+    messagingSenderId: '694310204931',
+    projectId: 'disaster-delivery-app',
+    storageBucket: 'disaster-delivery-app.firebasestorage.app',
+    iosBundleId: 'com.example.disasterDelivery',
+  );
+
 }

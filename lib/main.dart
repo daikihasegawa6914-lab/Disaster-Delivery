@@ -1,164 +1,242 @@
+// lib/main.dart
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
-// 認証は一時凍結（指令1）。FirebaseAuth/Firestore の起動時プロフィール判定は撤去。
 import 'firebase_options.dart';
-import 'security/secure_error_handler.dart';
-import 'security/optimized_firestore.dart';
-// import 'firestore_initializer.dart'; // ルール厳格化後は初期テストデータ挿入を停止
+
 import 'package:firebase_auth/firebase_auth.dart';
-import 'main_screen.dart';
-import 'profile_setup_screen.dart';
-import 'profile_edit_screen.dart';
-import 'login_screen.dart';
-import 'license_screen.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
-void main() async {
-  // 👶 簡単に言うと：「アプリを始める前の準備」
-  WidgetsFlutterBinding.ensureInitialized();
-  
-  // 🛡️ グローバルエラーハンドリング設定
-  SecureErrorHandler.setupGlobalErrorHandling();
-  
-  // 🔐 セキュリティログ
-  SecureErrorHandler.logSecureError(
-    operation: 'App Initialization',
-    error: 'アプリケーション開始',
-    level: SecurityLevel.info,
-  );
-  
-  // Firebaseに接続（既存の設定を使用）
-  try {
-    debugPrint('[BOOT] Firebase.initializeApp start');
-    await Firebase.initializeApp(
-      options: DefaultFirebaseOptions.currentPlatform,
-    );
-    debugPrint('[BOOT] Firebase.initializeApp done');
-  } catch (e, st) {
-    debugPrint('[BOOT][ERROR] Firebase init failed: $e\n$st');
-  }
-  
-  // 🚀 Firestore最適化設定
-  try {
-    debugPrint('[BOOT] Firestore offline enable start');
-    await OptimizedFirestoreConfig.enableOfflineSupport();
-    debugPrint('[BOOT] Firestore offline enable done');
-  } catch (e) {
-    debugPrint('[BOOT][WARN] Firestore offline config failed: $e');
-  }
-  
-  // � 匿名認証を必ず確立（Firestoreルール: request.auth != null 対応）
-  await _ensureAnonymousAuth();
-  debugPrint('[BOOT] Anonymous auth uid=${FirebaseAuth.instance.currentUser?.uid}');
-  // 起動時 lastActiveAt をタッチ (プロフィールが既に存在する場合のみ)
-  try {
-    final uid = FirebaseAuth.instance.currentUser!.uid;
-    final doc = await FirebaseFirestore.instance.collection('delivery_persons').doc(uid).get();
-    if (doc.exists) {
-      await FirebaseFirestore.instance.collection('delivery_persons').doc(uid).update({
-        'lastActiveAt': FieldValue.serverTimestamp(),
-        'updatedAt': FieldValue.serverTimestamp(),
-      });
-      debugPrint('[BOOT] lastActiveAt touched');
+import 'security/secure_error_handler.dart';
+import 'security/optimized_firestore.dart';
+
+// 画面遷移は GoRouter に一本化（実装は ui/root_router.dart 側）
+import 'ui/root_router.dart' show createAppRouter;
+import 'package:go_router/go_router.dart';
+
+/// アプリ全体で参照したい時用（例：バックグラウンド処理からの遷移など）
+late final GoRouter appRouter;
+
+void main() {
+  // ✅ ゾーンを最初に作って、その中で ensureInitialized / runApp を呼ぶ（Zone mismatch 対策）
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
+
+    // 🛡️ グローバルエラー捕捉
+    SecureErrorHandler.setupGlobalErrorHandling();
+    FlutterError.onError = (details) {
+      SecureErrorHandler.logSecureError(
+        operation: 'Flutter Framework',
+        error: details.exceptionAsString(),
+        level: SecurityLevel.error,
+        stackTrace: details.stack,
+      );
+      FlutterError.dumpErrorToConsole(details);
+    };
+
+    // 🔥 Firebase 初期化
+    try {
+      debugPrint('[BOOT] Firebase.initializeApp start');
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+      debugPrint('[BOOT] Firebase.initializeApp done');
+    } catch (e, st) {
+      debugPrint('[BOOT][ERROR] Firebase init failed: $e\n$st');
     }
+
+    // 🗃️ Firestore オフライン最適化
+    try {
+      debugPrint('[BOOT] Firestore offline enable start');
+      await OptimizedFirestoreConfig.enableOfflineSupport();
+      debugPrint('[BOOT] Firestore offline enable done');
+    } catch (e) {
+      debugPrint('[BOOT][WARN] Firestore offline config failed: $e');
+    }
+
+    // 👤 匿名認証を必ず確立（ネット不通でも UI は起動し、裏で再試行）
+    await _ensureAnonymousAuthWithRetry();
+
+    // （任意）配達員プロフィールがある場合のみ lastActiveAt を軽くタッチ
+    unawaited(_touchLastActive());
+
+    // 🚦 GoRouter 構築（利用者/配達員の切り替えUIや起動フローは root_router.dart 側で）
+    appRouter = createAppRouter();
+
+    runApp(const DisasterDeliveryApp());
+  }, (e, st) {
+    SecureErrorHandler.logSecureError(
+      operation: 'Uncaught Zone Error',
+      error: e.toString(),
+      level: SecurityLevel.error,
+      stackTrace: st,
+    );
+    debugPrint('🔒 [ERROR] Uncaught: $e\n$st');
+  });
+}
+
+/// 匿名サインインを軽いリトライ付きで保証（ネットワーク不安定時の開発体験改善）
+/// 成功しなくても致命にはせず、UI を先に出してバックグラウンドで再試行。
+Future<void> _ensureAnonymousAuthWithRetry() async {
+  final auth = FirebaseAuth.instance;
+
+  if (auth.currentUser != null) return;
+
+  const maxAttempts = 3;
+  var delay = const Duration(milliseconds: 400);
+
+  for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+    try {
+      await auth.signInAnonymously();
+      debugPrint('[BOOT] Anonymous sign-in OK (attempt $attempt)');
+      return;
+    } catch (e, st) {
+      debugPrint('[BOOT][WARN] Anonymous sign-in failed (attempt $attempt/$maxAttempts): $e');
+      SecureErrorHandler.logSecureError(
+        operation: 'Anonymous Sign-in',
+        error: e.toString(),
+        level: SecurityLevel.warning,
+        stackTrace: st,
+      );
+      if (attempt == maxAttempts) {
+        // ここでは落とさず UI を先に表示。後で静かに再試行する
+        unawaited(_retryAnonymousSignInSilently());
+        return;
+      }
+      await Future.delayed(delay);
+      delay *= 2;
+    }
+  }
+}
+
+/// 起動後に静かに再試行（ネット復帰を想定）
+Future<void> _retryAnonymousSignInSilently() async {
+  await Future.delayed(const Duration(seconds: 5));
+  try {
+    if (FirebaseAuth.instance.currentUser == null) {
+      await FirebaseAuth.instance.signInAnonymously();
+      debugPrint('[BOOT] Anonymous sign-in recovered');
+    }
+  } catch (_) {
+    // さらに失敗しても無視（次回起動時にまた試みる）
+  }
+}
+
+Future<void> _touchLastActive() async {
+  try {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    final doc =
+    await FirebaseFirestore.instance.collection('delivery_persons').doc(uid).get();
+    if (!doc.exists) return;
+
+    await FirebaseFirestore.instance
+        .collection('delivery_persons')
+        .doc(uid)
+        .update({
+      'lastActiveAt': FieldValue.serverTimestamp(),
+      'updatedAt': FieldValue.serverTimestamp(),
+    });
+    debugPrint('[BOOT] lastActiveAt touched');
   } catch (e) {
     debugPrint('[BOOT][WARN] lastActiveAt touch failed: $e');
   }
-  
-  // 配達員用アプリを起動
-  runApp(const DeliveryApp());
 }
 
-// 匿名ログインを保証
-Future<void> _ensureAnonymousAuth() async {
-  final auth = FirebaseAuth.instance;
-  if (auth.currentUser == null) {
-    await auth.signInAnonymously();
-  }
-}
-
-class DeliveryApp extends StatelessWidget {
-  const DeliveryApp({super.key});
+class DisasterDeliveryApp extends StatelessWidget {
+  const DisasterDeliveryApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: '🚚 災害配達員アプリ',
+    return MaterialApp.router(
+      title: 'Disaster Delivery',
+      debugShowCheckedModeBanner: false,
+      routerConfig: appRouter,
       theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
         useMaterial3: true,
+        colorSchemeSeed: Colors.blue,
         appBarTheme: AppBarTheme(
           backgroundColor: Colors.blue.shade100,
           foregroundColor: Colors.blue.shade800,
         ),
       ),
-      // 指令1: 起動時ユーザーフロー統一。AuthWrapper 廃止し、ローカル登録状態で分岐。
-      home: const StartupFlowWrapper(),
-      routes: {
-        '/main': (context) => const MainScreen(),
-        '/profile_setup': (context) => const ProfileSetupScreen(),
-        '/profile_edit': (context) => const ProfileEditScreen(),
-        '/login': (context) => const LoginScreen(),
-        '/license': (context) => const LicenseScreen(),
+      // 旧 Navigator.named で落ちた時の画面（保険）
+      builder: (context, child) {
+        return LegacyNamedRouteBridge(
+          child: _LegacyRouteGuard(child: child),
+        );
       },
-      debugShowCheckedModeBanner: false,
     );
   }
 }
 
-// � 起動時フロー: SharedPreferences で delivery_person_id を確認
-class StartupFlowWrapper extends StatefulWidget {
-  const StartupFlowWrapper({super.key});
+class _LegacyRouteGuard extends StatelessWidget {
+  const _LegacyRouteGuard({required this.child});
+  final Widget? child;
 
   @override
-  State<StartupFlowWrapper> createState() => _StartupFlowWrapperState();
+  Widget build(BuildContext context) {
+    return Banner(
+      location: BannerLocation.topStart,
+      message: 'GoRouter',
+      color: Colors.blue.withOpacity(0.6),
+      textStyle: const TextStyle(fontSize: 10, color: Colors.white),
+      child: child ?? const SizedBox.shrink(),
+    );
+  }
 }
 
-class _StartupFlowWrapperState extends State<StartupFlowWrapper> {
-  Future<String?>? _future;
+/// ----- Legacy named-routes → GoRouter 橋渡し（保険） -----
+/// 既存コードに `Navigator.pushNamed(...)` / `pushReplacementNamed(...)` が残っていても
+/// ここで受け止めて `appRouter.go(...)` に転送する。
+class LegacyNamedRouteBridge extends StatelessWidget {
+  const LegacyNamedRouteBridge({super.key, required this.child});
+  final Widget child;
 
-  @override
-  void initState() {
-    super.initState();
-    _future = _loadPersonId();
+  Route<dynamic> _buildEmptyRoute(String name) {
+    // 実際の遷移は GoRouter に任せ、ここでは透明な空ページを積むだけ
+    return PageRouteBuilder(
+      settings: RouteSettings(name: name),
+      opaque: false,
+      barrierColor: null,
+      pageBuilder: (_, __, ___) => const SizedBox.shrink(),
+    );
   }
 
-  Future<String?> _loadPersonId() async {
-    final prefs = await SharedPreferences.getInstance();
-    try {
-      final id = prefs.getString('delivery_person_id');
-      debugPrint('[FLOW] Loaded delivery_person_id=$id');
-      return id;
-    } catch (e) {
-      debugPrint('[FLOW][ERROR] SharedPreferences load failed: $e');
-      rethrow;
+  void _forwardToGoRouter(String? name) {
+    if (name == null) return;
+    // 既知パスはそのまま go。未知はトップへ退避
+    const known = <String>{
+      '/login',
+      '/profile/setup',
+      '/courier/main',
+      '/admin/upload',
+    };
+    if (known.contains(name)) {
+      appRouter.go(name);
+    } else {
+      // named で渡ってきたが未登録 → トップへ
+      appRouter.go('/courier/main');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return FutureBuilder<String?>(
-      future: _future,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return Scaffold(
-            body: Center(
-              child: Text('初期化エラー: ${snapshot.error}', style: const TextStyle(color: Colors.red)),
-            ),
-          );
-        }
-        if (snapshot.connectionState != ConnectionState.done) {
-          return const Scaffold(
-            backgroundColor: Colors.blue,
-            body: Center(
-              child: CircularProgressIndicator(color: Colors.white),
-            ),
-          );
-        }
-        final hasId = (snapshot.data != null && snapshot.data!.isNotEmpty);
-        return hasId ? const MainScreen() : const ProfileSetupScreen();
+    return Navigator(
+      // `pushNamed*` が来ると onGenerateRoute が呼ばれる
+      onGenerateRoute: (settings) {
+        _forwardToGoRouter(settings.name);
+        return _buildEmptyRoute(settings.name ?? '');
       },
+      onUnknownRoute: (settings) {
+        _forwardToGoRouter(settings.name);
+        return _buildEmptyRoute(settings.name ?? '');
+      },
+      // 配下に本来のアプリをぶら下げる
+      pages: [
+        MaterialPage<void>(child: child),
+      ],
+      onPopPage: (route, result) => route.didPop(result),
     );
   }
 }
